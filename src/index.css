@@ -1,0 +1,228 @@
+@import "tailwindcss";
+
+@theme {
+  --color-void: #05070f;
+  --color-neon: #22d3ee;
+  --color-amber-neon: #fbbf24;
+  --color-pink-neon: #f472b6;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-pulse-soft: pulseSoft 2.6s ease-in-out infinite;
+  --animate-rise: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-flicker: flicker 3.4s linear infinite;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  height: 100dvh;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(120% 90% at 50% -10%, rgba(34, 45, 90, 0.55) 0%, rgba(5, 7, 15, 0) 55%),
+    radial-gradient(80% 60% at 85% 110%, rgba(88, 28, 76, 0.35) 0%, rgba(5, 7, 15, 0) 60%),
+    #02030a;
+  color: #e6f1ff;
+  font-family:
+    "Avenir Next",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* Phone-like play column; full-bleed on portrait phones */
+#shell {
+  position: fixed;
+  inset: 0;
+  margin-inline: auto;
+  width: 100vw;
+  max-width: calc(100dvh * 0.62);
+  background: #05070f;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(120, 160, 255, 0.08),
+    0 0 120px rgba(34, 211, 238, 0.06);
+  touch-action: none;
+}
+
+canvas.game-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.num {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+}
+
+.glass {
+  background: rgba(148, 180, 255, 0.07);
+  border: 1px solid rgba(170, 200, 255, 0.14);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.text-glow {
+  text-shadow:
+    0 0 18px rgba(34, 211, 238, 0.55),
+    0 0 60px rgba(34, 211, 238, 0.25);
+}
+
+.text-glow-amber {
+  text-shadow:
+    0 0 18px rgba(251, 191, 36, 0.5),
+    0 0 60px rgba(251, 191, 36, 0.2);
+}
+
+.title-gradient {
+  background: linear-gradient(100deg, #a5f3fc 0%, #22d3ee 35%, #818cf8 70%, #f472b6 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 7s linear infinite;
+}
+
+.btn {
+  transition:
+    transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 0.15s ease,
+    box-shadow 0.2s ease;
+  will-change: transform;
+}
+.btn:active {
+  transform: scale(0.94);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #0ea5c9 0%, #22d3ee 50%, #67e8f9 100%);
+  color: #03131a;
+  box-shadow:
+    0 0 0 1px rgba(165, 243, 252, 0.6) inset,
+    0 8px 30px -6px rgba(34, 211, 238, 0.55),
+    0 2px 10px rgba(0, 0, 0, 0.4);
+}
+.btn-primary:active {
+  filter: brightness(1.15);
+}
+
+.btn-ghost {
+  background: rgba(148, 180, 255, 0.08);
+  border: 1px solid rgba(170, 200, 255, 0.18);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.025) 0px,
+    rgba(255, 255, 255, 0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 0% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes pulseSoft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes flicker {
+  0%,
+  92%,
+  96%,
+  100% {
+    opacity: 1;
+  }
+  94% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes flashPanel {
+  0% {
+    box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.9);
+  }
+  100% {
+    box-shadow: 0 0 0 1px rgba(34, 211, 238, 0);
+  }
+}
+
+.pop-in {
+  animation: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.pop-in-1 {
+  animation: rise 0.45s 0.06s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.pop-in-2 {
+  animation: rise 0.45s 0.12s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.pop-in-3 {
+  animation: rise 0.45s 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+::-webkit-scrollbar {
+  display: none;
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}

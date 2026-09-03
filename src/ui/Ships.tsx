@@ -1,0 +1,154 @@
+import { useEffect, useRef } from 'react';
+import { Check, Coins, Flag, Lock } from 'lucide-react';
+import type { SaveData, ShipId } from '../game/types';
+import { SHIPS } from '../game/content';
+import { drawGlow, drawShip } from '../game/sprites';
+import { CoinChip, ProgressBar, ScreenHeader } from './bits';
+import { cn } from '../utils/cn';
+
+function ShipPreview({ id, accent }: { id: ShipId; accent: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = 190;
+    const H = 92;
+    cv.width = W * dpr;
+    cv.height = H * dpr;
+    cv.style.width = `${W}px`;
+    cv.style.height = `${H}px`;
+    let raf = 0;
+    const t0 = performance.now();
+    const draw = (now: number) => {
+      raf = requestAnimationFrame(draw);
+      const t = (now - t0) / 1000;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      drawGlow(ctx, `${accent}66`, W / 2, H / 2 + 6, 46, 0.8);
+      ctx.save();
+      ctx.translate(W / 2, H / 2 + Math.sin(t * 1.7) * 3.5);
+      ctx.scale(2.1, 2.1);
+      drawShip(ctx, id, t, 0.75);
+      ctx.restore();
+      // landing pad line
+      ctx.strokeStyle = 'rgba(148,180,255,0.16)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(W / 2 - 52, H - 10);
+      ctx.lineTo(W / 2 + 52, H - 10);
+      ctx.stroke();
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [id, accent]);
+  return <canvas ref={ref} className="mx-auto" />;
+}
+
+function StatRow({ label, k, color }: { label: string; k: number; color: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-9 text-[8px] font-extrabold tracking-[0.18em] text-slate-400">{label}</span>
+      <ProgressBar k={k} color={color} className="flex-1" />
+    </div>
+  );
+}
+
+export function Ships({
+  save,
+  onBack,
+  onSelect,
+  onBuy,
+}: {
+  save: SaveData;
+  onBack: () => void;
+  onSelect: (id: ShipId) => void;
+  onBuy: (id: ShipId) => void;
+}) {
+  const maxCp = save.checkpoints.length ? Math.max(...save.checkpoints) : 0;
+  return (
+    <div className="absolute inset-0 z-30 flex flex-col bg-[#02030a]/85 backdrop-blur-md">
+      <div className="safe-top">
+        <ScreenHeader title="STARSHIPS" sub="CHOOSE YOUR FRAME" onBack={onBack} right={<CoinChip value={save.coins} />} />
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 pt-3 pb-6" style={{ touchAction: 'pan-y' }}>
+        <div className="flex flex-col gap-3">
+          {SHIPS.map((ship, idx) => {
+            const owned = save.shipsOwned.includes(ship.id);
+            const active = save.ship === ship.id;
+            const lockedCp = ship.requires > 0 && maxCp < ship.requires;
+            const afford = save.coins >= ship.cost;
+            return (
+              <div
+                key={ship.id}
+                className={cn('glass pop-in rounded-3xl p-3', active && 'border-cyan-300/50')}
+                style={{ animationDelay: `${idx * 0.06}s`, boxShadow: active ? `0 0 24px ${ship.accent}33` : undefined }}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-black tracking-[0.18em] text-slate-100">{ship.name}</span>
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[8px] font-black tracking-[0.2em]"
+                        style={{ background: `${ship.accent}22`, color: ship.accent }}
+                      >
+                        {ship.tag}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 max-w-[200px] text-[10px] leading-snug font-medium text-slate-400">{ship.desc}</div>
+                  </div>
+                  {lockedCp && <Lock size={16} className="text-slate-500" />}
+                </div>
+                <div className={cn('relative', lockedCp && 'opacity-40 grayscale')}>
+                  <ShipPreview id={ship.id} accent={ship.accent} />
+                  <div className="mx-auto flex max-w-[210px] flex-col gap-1">
+                    <StatRow label="SPD" k={ship.mods.speed / 1.35} color="#a78bfa" />
+                    <StatRow label="ROF" k={ship.mods.rate / 1.2} color="#ffd23f" />
+                    <StatRow label="DMG" k={ship.mods.damage / 1.7} color="#f472b6" />
+                    <StatRow label="ARM" k={(3 + ship.mods.hull) / 6.4} color="#4ade80" />
+                  </div>
+                </div>
+                <div className="mt-2.5">
+                  {active ? (
+                    <div className="flex h-11 items-center justify-center gap-2 rounded-xl bg-cyan-400/15 text-[11px] font-black tracking-[0.24em] text-cyan-200">
+                      <Check size={15} strokeWidth={3} />
+                      ACTIVE FRAME
+                    </div>
+                  ) : owned ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelect(ship.id)}
+                      className="btn btn-ghost h-11 w-full rounded-xl text-[11px] font-black tracking-[0.24em] text-cyan-100"
+                    >
+                      SELECT
+                    </button>
+                  ) : lockedCp ? (
+                    <div className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white/5 text-[10px] font-bold tracking-[0.18em] text-slate-500">
+                      <Flag size={13} />
+                      REACH CHECKPOINT {ship.requires}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={!afford}
+                      onClick={() => onBuy(ship.id)}
+                      className={cn(
+                        'btn flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-[11px] font-black tracking-[0.24em]',
+                        afford ? 'btn-primary' : 'btn-ghost text-slate-500',
+                      )}
+                    >
+                      <Coins size={14} strokeWidth={2.6} />
+                      BUY — <span className="num">{ship.cost}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
