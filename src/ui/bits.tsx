@@ -45,7 +45,7 @@ export function ScreenHeader({
         type="button"
         onClick={onBack}
         className="btn glass flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-cyan-100"
-        aria-label="Back"
+        aria-label="Назад"
       >
         <ChevronLeft size={22} strokeWidth={2.4} />
       </button>

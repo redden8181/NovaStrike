@@ -13,7 +13,18 @@ export type SoundName =
   | 'death'
   | 'warn'
   | 'checkpoint'
-  | 'ui';
+  | 'ui'
+  | 'synergy'
+  | 'synergyOff'
+  | 'ability'
+  | 'abilityReady'
+  | 'charge'
+  | 'beam'
+  | 'laser'
+  | 'phase'
+  | 'modeStart'
+  | 'daily'
+  | 'voidmax';
 
 class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -160,6 +171,57 @@ class AudioEngine {
         break;
       case 'ui':
         this.tone(700, 900, 0.06, 'sine', 0.05);
+        break;
+      case 'synergy':
+        // bright rising arpeggio + shimmer
+        this.tone(659, 659, 0.09, 'triangle', 0.1);
+        this.tone(880, 880, 0.09, 'triangle', 0.11, 0.07);
+        this.tone(1174, 1174, 0.09, 'triangle', 0.11, 0.14);
+        this.tone(1568, 1568, 0.26, 'triangle', 0.12, 0.21);
+        this.noise(0.3, 0.05, 5200, 2200, 0.2);
+        break;
+      case 'synergyOff':
+        this.tone(880, 330, 0.22, 'triangle', 0.07);
+        break;
+      case 'ability':
+        this.tone(300, 900, 0.16, 'sawtooth', 0.11);
+        this.noise(0.18, 0.08, 3000, 700);
+        break;
+      case 'abilityReady':
+        this.tone(1046, 1046, 0.07, 'sine', 0.07);
+        this.tone(1568, 1568, 0.12, 'sine', 0.07, 0.06);
+        break;
+      case 'charge':
+        this.tone(160, 1200, 0.62, 'sawtooth', 0.09);
+        break;
+      case 'beam':
+        this.tone(900, 180, 0.85, 'sawtooth', 0.16);
+        this.noise(0.85, 0.16, 4200, 500);
+        break;
+      case 'laser':
+        this.tone(420, 260, 0.5, 'square', 0.1);
+        this.noise(0.5, 0.1, 2600, 800);
+        break;
+      case 'phase':
+        // heavy alarm cue for boss phase transitions
+        this.tone(220, 110, 0.32, 'sawtooth', 0.16);
+        this.tone(110, 55, 0.5, 'sine', 0.18, 0.1);
+        this.noise(0.5, 0.14, 1400, 120, 0.05);
+        break;
+      case 'modeStart':
+        this.tone(392, 392, 0.1, 'triangle', 0.1);
+        this.tone(523, 523, 0.1, 'triangle', 0.1, 0.09);
+        this.tone(784, 784, 0.24, 'triangle', 0.12, 0.18);
+        break;
+      case 'daily':
+        this.tone(587, 587, 0.1, 'sine', 0.09);
+        this.tone(880, 880, 0.1, 'sine', 0.1, 0.08);
+        this.tone(1174, 1174, 0.2, 'sine', 0.1, 0.16);
+        break;
+      case 'voidmax':
+        this.tone(120, 60, 0.7, 'sine', 0.2);
+        this.tone(1320, 660, 0.5, 'triangle', 0.1, 0.05);
+        this.noise(0.6, 0.12, 3600, 300);
         break;
     }
   }

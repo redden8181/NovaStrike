@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { Check, Coins, Flag, Lock } from 'lucide-react';
+import { Check, Coins, Flag, Lock, Sparkles } from 'lucide-react';
 import type { SaveData, ShipId } from '../game/types';
 import { SHIPS } from '../game/content';
+import { ABILITIES } from '../game/abilities';
 import { drawGlow, drawShip } from '../game/sprites';
 import { CoinChip, ProgressBar, ScreenHeader } from './bits';
 import { cn } from '../utils/cn';
@@ -33,7 +34,6 @@ function ShipPreview({ id, accent }: { id: ShipId; accent: string }) {
       ctx.scale(2.1, 2.1);
       drawShip(ctx, id, t, 0.75);
       ctx.restore();
-      // landing pad line
       ctx.strokeStyle = 'rgba(148,180,255,0.16)';
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -71,27 +71,31 @@ export function Ships({
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-[#02030a]/85 backdrop-blur-md">
       <div className="safe-top">
-        <ScreenHeader title="STARSHIPS" sub="CHOOSE YOUR FRAME" onBack={onBack} right={<CoinChip value={save.coins} />} />
+        <ScreenHeader title="КОРАБЛИ" sub="У КАЖДОГО СВОЯ СПОСОБНОСТЬ" onBack={onBack} right={<CoinChip value={save.coins} />} />
       </div>
       <div className="flex-1 overflow-y-auto px-4 pt-3 pb-6" style={{ touchAction: 'pan-y' }}>
         <div className="flex flex-col gap-3">
           {SHIPS.map((ship, idx) => {
             const owned = save.shipsOwned.includes(ship.id);
             const active = save.ship === ship.id;
-            const lockedCp = ship.requires > 0 && maxCp < ship.requires;
+            const secret = !!ship.requiresUnlock;
+            const unlockedSecret = secret ? save.unlocks.includes(ship.requiresUnlock!) : true;
+            const lockedCp = (ship.requires > 0 && maxCp < ship.requires) || !unlockedSecret;
             const afford = save.coins >= ship.cost;
+            const ability = ABILITIES[ship.ability];
+
             return (
               <div
                 key={ship.id}
                 className={cn('glass pop-in rounded-3xl p-3', active && 'border-cyan-300/50')}
                 style={{ animationDelay: `${idx * 0.06}s`, boxShadow: active ? `0 0 24px ${ship.accent}33` : undefined }}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-black tracking-[0.18em] text-slate-100">{ship.name}</span>
+                      <span className="text-sm font-black tracking-[0.16em] text-slate-100">{ship.name}</span>
                       <span
-                        className="rounded-full px-2 py-0.5 text-[8px] font-black tracking-[0.2em]"
+                        className="rounded-full px-2 py-0.5 text-[8px] font-black tracking-[0.16em]"
                         style={{ background: `${ship.accent}22`, color: ship.accent }}
                       >
                         {ship.tag}
@@ -101,46 +105,71 @@ export function Ships({
                   </div>
                   {lockedCp && <Lock size={16} className="text-slate-500" />}
                 </div>
+
                 <div className={cn('relative', lockedCp && 'opacity-40 grayscale')}>
                   <ShipPreview id={ship.id} accent={ship.accent} />
                   <div className="mx-auto flex max-w-[210px] flex-col gap-1">
-                    <StatRow label="SPD" k={ship.mods.speed / 1.35} color="#a78bfa" />
-                    <StatRow label="ROF" k={ship.mods.rate / 1.2} color="#ffd23f" />
-                    <StatRow label="DMG" k={ship.mods.damage / 1.7} color="#f472b6" />
-                    <StatRow label="ARM" k={(3 + ship.mods.hull) / 6.4} color="#4ade80" />
+                    <StatRow label="СКР" k={ship.mods.speed / 1.35} color="#a78bfa" />
+                    <StatRow label="ОГН" k={ship.mods.rate / 1.2} color="#ffd23f" />
+                    <StatRow label="УРН" k={ship.mods.damage / 1.7} color="#f472b6" />
+                    <StatRow label="БРН" k={(3 + ship.mods.hull) / 6.4} color="#4ade80" />
                   </div>
                 </div>
+
+                {/* карточка способности */}
+                <div
+                  className="mt-2.5 rounded-2xl px-3 py-2"
+                  style={{ background: `${ability.color}12`, border: `1px solid ${ability.color}33` }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-[10px] font-black tracking-[0.16em]" style={{ color: ability.color }}>
+                      <Sparkles size={11} strokeWidth={3} />
+                      {ability.name}
+                    </span>
+                    <span className="num text-[9px] font-bold text-slate-400">КД {ability.cooldown}с</span>
+                  </div>
+                  <div className="mt-0.5 text-[9.5px] leading-snug font-medium text-slate-400">{ability.desc}</div>
+                </div>
+
                 <div className="mt-2.5">
                   {active ? (
-                    <div className="flex h-11 items-center justify-center gap-2 rounded-xl bg-cyan-400/15 text-[11px] font-black tracking-[0.24em] text-cyan-200">
+                    <div className="flex h-11 items-center justify-center gap-2 rounded-xl bg-cyan-400/15 text-[11px] font-black tracking-[0.2em] text-cyan-200">
                       <Check size={15} strokeWidth={3} />
-                      ACTIVE FRAME
+                      ВЫБРАН
                     </div>
                   ) : owned ? (
                     <button
                       type="button"
                       onClick={() => onSelect(ship.id)}
-                      className="btn btn-ghost h-11 w-full rounded-xl text-[11px] font-black tracking-[0.24em] text-cyan-100"
+                      className="btn btn-ghost h-11 w-full rounded-xl text-[11px] font-black tracking-[0.22em] text-cyan-100"
                     >
-                      SELECT
+                      ВЫБРАТЬ
                     </button>
                   ) : lockedCp ? (
-                    <div className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white/5 text-[10px] font-bold tracking-[0.18em] text-slate-500">
+                    <div className="flex h-11 items-center justify-center gap-2 rounded-xl bg-white/5 text-[10px] font-bold tracking-[0.14em] text-slate-500">
                       <Flag size={13} />
-                      REACH CHECKPOINT {ship.requires}
+                      ОТКРОЕТСЯ НА {ship.requires.toLocaleString('ru-RU')} ОЧКАХ
                     </div>
+                  ) : ship.cost === 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => onBuy(ship.id)}
+                      className="btn btn-primary h-11 w-full rounded-xl text-[11px] font-black tracking-[0.22em]"
+                    >
+                      ЗАБРАТЬ ПРОТОТИП
+                    </button>
                   ) : (
                     <button
                       type="button"
                       disabled={!afford}
                       onClick={() => onBuy(ship.id)}
                       className={cn(
-                        'btn flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-[11px] font-black tracking-[0.24em]',
+                        'btn flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-[11px] font-black tracking-[0.22em]',
                         afford ? 'btn-primary' : 'btn-ghost text-slate-500',
                       )}
                     >
                       <Coins size={14} strokeWidth={2.6} />
-                      BUY — <span className="num">{ship.cost}</span>
+                      КУПИТЬ — <span className="num">{ship.cost}</span>
                     </button>
                   )}
                 </div>

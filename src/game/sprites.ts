@@ -59,6 +59,73 @@ export function drawShip(ctx: CanvasRenderingContext2D, id: ShipId, t: number, t
     case 'nova':
       shipNova(ctx, t, thrust);
       break;
+    case 'voidx':
+      shipVoid(ctx, t, thrust);
+      break;
+  }
+}
+
+/** VOID-X — secret endgame prototype: dark hull, rift-purple energy. */
+function shipVoid(ctx: CanvasRenderingContext2D, t: number, thrust: number) {
+  // swept dark wings
+  const wg = ctx.createLinearGradient(0, -10, 0, 16);
+  wg.addColorStop(0, '#4c1d95');
+  wg.addColorStop(1, '#0b0716');
+  ctx.fillStyle = wg;
+  ctx.beginPath();
+  ctx.moveTo(0, -2);
+  ctx.lineTo(-19, 8);
+  ctx.lineTo(-15, 15);
+  ctx.lineTo(-4, 12);
+  ctx.closePath();
+  ctx.moveTo(0, -2);
+  ctx.lineTo(19, 8);
+  ctx.lineTo(15, 15);
+  ctx.lineTo(4, 12);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(129,140,248,0.85)';
+  ctx.lineWidth = 0.9;
+  ctx.stroke();
+  // rift engine
+  engineFlame(ctx, 0, 14, t, 1.5, thrust, '#818cf8');
+  // faceted hull
+  const hg = ctx.createLinearGradient(0, -20, 0, 14);
+  hg.addColorStop(0, '#e0e7ff');
+  hg.addColorStop(0.45, '#4338ca');
+  hg.addColorStop(1, '#0b0716');
+  ctx.fillStyle = hg;
+  ctx.beginPath();
+  ctx.moveTo(0, -21);
+  ctx.lineTo(-6, -6);
+  ctx.lineTo(-4.5, 11);
+  ctx.lineTo(0, 14);
+  ctx.lineTo(4.5, 11);
+  ctx.lineTo(6, -6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(199,210,254,0.75)';
+  ctx.lineWidth = 0.7;
+  ctx.stroke();
+  // rift core
+  const pulse = 0.7 + 0.3 * Math.sin(t * 4);
+  const cg = ctx.createRadialGradient(0, -4, 0, 0, -4, 7 * pulse);
+  cg.addColorStop(0, '#ffffff');
+  cg.addColorStop(0.4, '#818cf8');
+  cg.addColorStop(1, 'rgba(49,46,129,0)');
+  ctx.fillStyle = cg;
+  ctx.beginPath();
+  ctx.ellipse(0, -4, 3.4 * pulse, 6.5 * pulse, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // orbiting shards
+  ctx.fillStyle = 'rgba(199,210,254,0.9)';
+  for (let i = 0; i < 3; i++) {
+    const a = t * 1.6 + (Math.PI * 2 * i) / 3;
+    ctx.save();
+    ctx.translate(Math.cos(a) * 13, Math.sin(a) * 5 + 2);
+    ctx.rotate(a);
+    ctx.fillRect(-1.2, -1.2, 2.4, 2.4);
+    ctx.restore();
   }
 }
 

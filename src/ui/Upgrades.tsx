@@ -35,7 +35,7 @@ export function Upgrades({
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-[#02030a]/85 backdrop-blur-md">
       <div className="safe-top">
-        <ScreenHeader title="HANGAR" sub="PERMANENT UPGRADES — KEPT FOREVER" onBack={onBack} right={<CoinChip value={save.coins} />} />
+        <ScreenHeader title="АНГАР" sub="ПОСТОЯННЫЕ УЛУЧШЕНИЯ — НАВСЕГДА" onBack={onBack} right={<CoinChip value={save.coins} />} />
       </div>
       <div className="flex-1 overflow-y-auto px-4 pt-3 pb-6" style={{ touchAction: 'pan-y' }}>
         <div className="flex flex-col gap-2.5">
@@ -85,7 +85,7 @@ export function Upgrades({
                   )}
                 >
                   {maxed ? (
-                    'MAX'
+                    'МАКС'
                   ) : (
                     <>
                       <Coins size={13} strokeWidth={2.6} />
@@ -97,8 +97,8 @@ export function Upgrades({
             );
           })}
         </div>
-        <div className="mt-4 text-center text-[10px] font-semibold tracking-[0.18em] text-slate-500">
-          SURVIVE RUNS · COLLECT COINS · GROW STRONGER
+        <div className="mt-4 text-center text-[10px] font-semibold tracking-[0.14em] text-slate-500">
+          ВЫЖИВАЙ · СОБИРАЙ МОНЕТЫ · СТАНОВИСЬ СИЛЬНЕЕ
         </div>
       </div>
     </div>
