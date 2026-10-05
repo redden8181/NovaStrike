@@ -3,9 +3,15 @@ import {
   ENEMIES,
   MILESTONES,
   POWERUPS,
+  RANKS,
   POWERUP_MAP,
   SHIP_MAP,
+  TECHS,
+  TRACKS,
   VOID_DRIVE_TIERS,
+  shipUpgradesOf,
+  trackReached,
+  trackValue,
   voidDriveBonus,
 } from './content';
 import type {
@@ -19,6 +25,7 @@ import type {
   RunResult,
   ShipId,
   SynergyHud,
+  TechId,
 } from './types';
 import { drawCoinDisc, drawEnemyKind, drawGlow, drawPowerupIcon, drawShip } from './sprites';
 import { sfx } from './audio';
@@ -26,10 +33,12 @@ import { ABILITIES, AbilityRuntime, type AbilityDef, type AbilityEvents } from '
 import { SYNERGY_MAP, SynergyTracker } from './synergies';
 import { MODE_MAP, type ModeDef } from './modes';
 import { buildDaily, makeRng, todayKey, type DailyConfig } from './dailyRun';
+import { Background } from './background';
 import {
   bossForTier,
   bossPhaseLabel,
   bossHitTest,
+  bossLaserZone,
   createBoss,
   damageBossCore,
   damageBossTurret,
@@ -49,12 +58,6 @@ const dist2 = (x1: number, y1: number, x2: number, y2: number) => {
   return dx * dx + dy * dy;
 };
 
-interface Star {
-  x: number;
-  y: number;
-  z: number;
-  tw: number;
-}
 interface Particle {
   x: number;
   y: number;
@@ -67,6 +70,7 @@ interface Particle {
   drag: number;
   grav: number;
 }
+/** kind: 0 обычный · 1 ракета (самонаведение) · 2 бомба · 3 осколок */
 interface PBullet {
   x: number;
   y: number;
@@ -75,6 +79,9 @@ interface PBullet {
   dmg: number;
   r: number;
   power: boolean;
+  kind: number;
+  life: number;
+  color: string;
 }
 interface EBullet {
   x: number;
@@ -141,7 +148,15 @@ interface Banner {
   color: string;
 }
 
-const EMPTY_TIMERS: Record<PowerupType, number> = { rapid: 0, double: 0, triple: 0, shield: 0, power: 0, magnet: 0 };
+const EMPTY_TIMERS: Record<PowerupType, number> = {
+  rapid: 0,
+  double: 0,
+  triple: 0,
+  shield: 0,
+  power: 0,
+  magnet: 0,
+  repair: 0,
+};
 const MAX_PARTS = 300;
 
 export class GameEngine {
@@ -168,12 +183,11 @@ export class GameEngine {
   private hudT = 0;
   private flushT = 0;
 
-  // background
-  private stars: Star[] = [];
-  private nebulas: { x: number; y: number; r: number; vy: number; hue: number }[] = [];
-  private vignette: HTMLCanvasElement | null = null;
-  private shootStar: { x: number; y: number; vx: number; vy: number; life: number } | null = null;
-  private shootT = 5;
+  // background subsystem (cosmetic, fully isolated)
+  private bg = new Background();
+  private resizeTimer = 0;
+  private bgBuilt = false;
+  private flashWhite = 0;
 
   // ── run configuration ──────────────────────────────────────────────────────
   private gameMode: GameMode = 'classic';
@@ -229,6 +243,12 @@ export class GameEngine {
   private dashVX = 0;
   private dashVY = 0;
   private beamT = 0;
+  // уникальная техника корпуса
+  private techId: TechId = 'missiles';
+  private techLevel = 0;
+  private techT = 0;
+  private arcs: { x1: number; y1: number; x2: number; y2: number; life: number; color: string }[] = [];
+  private vortex: { x: number; y: number; life: number; max: number; r: number } | null = null;
   private voidStreak = 0;
   private voidBonus = 0;
   private voidMaxFx = 0;
@@ -311,7 +331,6 @@ export class GameEngine {
     window.addEventListener('keyup', this.onKeyUp);
     document.addEventListener('visibilitychange', this.onVis);
 
-    this.initBackground();
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.loop);
   }
@@ -327,75 +346,46 @@ export class GameEngine {
     window.removeEventListener('keydown', this.onKey);
     window.removeEventListener('keyup', this.onKeyUp);
     document.removeEventListener('visibilitychange', this.onVis);
+    window.clearTimeout(this.resizeTimer);
     sfx.stopAmbient();
   }
 
-  // ── sizing / background ────────────────────────────────────────────────────
+  // ── sizing ─────────────────────────────────────────────────────────────────
   private resize = () => {
     const parent = this.cv.parentElement;
     const w = parent ? parent.clientWidth : window.innerWidth;
     const h = parent ? parent.clientHeight : window.innerHeight;
+    const u = clamp(h / 760, 0.75, 1.3);
+    // iOS fires resize for every toolbar flicker — bail out when nothing changed
+    if (this.bgBuilt && w === this.w && h === this.h && Math.abs(u - this.u) < 0.001) return;
     this.w = w;
     this.h = h;
-    this.u = clamp(h / 760, 0.75, 1.3);
+    this.u = u;
     this.dimsCache.w = w;
     this.dimsCache.h = h;
     this.dimsCache.u = this.u;
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.cv.width = Math.round(w * this.dpr);
-    this.cv.height = Math.round(h * this.dpr);
+    // devicePixelRatio is applied only up to a hard pixel budget (mobile safety)
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const MAXPX = 2_600_000;
+    if (w * dpr * (h * dpr) > MAXPX) dpr = Math.max(1, Math.sqrt(MAXPX / (w * h)));
+    this.dpr = dpr;
+    this.cv.width = Math.round(w * dpr);
+    this.cv.height = Math.round(h * dpr);
     this.cv.style.width = `${w}px`;
     this.cv.style.height = `${h}px`;
-    this.buildVignette();
-    this.initBackground();
+    // heavy prefab rebuild (nebula layout, vignette) is debounced against resize storms
+    window.clearTimeout(this.resizeTimer);
+    if (!this.bgBuilt) {
+      this.bgBuilt = true;
+      this.bg.resize(w, h, this.u);
+    } else {
+      this.resizeTimer = window.setTimeout(() => this.bg.resize(this.w, this.h, this.u), 180);
+    }
     if (this.phase === 'menu' || this.phase === 'over') {
       this.px = w / 2;
       this.py = h * 0.82;
     }
   };
-
-  private initBackground() {
-    this.stars.length = 0;
-    for (let i = 0; i < 110; i++) {
-      this.stars.push({
-        x: Math.random() * this.w,
-        y: Math.random() * this.h,
-        z: Math.random() < 0.5 ? 0 : Math.random() < 0.7 ? 1 : 2,
-        tw: Math.random() * TAU,
-      });
-    }
-    this.nebulas.length = 0;
-    for (let i = 0; i < 4; i++) {
-      this.nebulas.push({
-        x: (0.1 + Math.random() * 0.8) * this.w,
-        y: (-0.2 + Math.random() * 1.2) * this.h,
-        r: (120 + Math.random() * 140) * this.u,
-        vy: 3 + Math.random() * 4,
-        hue: Math.floor(Math.random() * 3),
-      });
-    }
-  }
-
-  private buildVignette() {
-    const c = document.createElement('canvas');
-    c.width = Math.max(2, Math.round(this.w));
-    c.height = Math.max(2, Math.round(this.h));
-    const g = c.getContext('2d')!;
-    const grad = g.createRadialGradient(
-      this.w / 2,
-      this.h * 0.42,
-      Math.min(this.w, this.h) * 0.34,
-      this.w / 2,
-      this.h * 0.5,
-      Math.max(this.w, this.h) * 0.78,
-    );
-    grad.addColorStop(0, 'rgba(2,4,12,0)');
-    grad.addColorStop(0.75, 'rgba(2,4,12,0.28)');
-    grad.addColorStop(1, 'rgba(1,2,8,0.72)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, c.width, c.height);
-    this.vignette = c;
-  }
 
   // ── input ──────────────────────────────────────────────────────────────────
   private onDown = (e: PointerEvent) => {
@@ -459,7 +449,13 @@ export class GameEngine {
     this.shipId = save.ship;
     const ship = SHIP_MAP[save.ship] ?? SHIP_MAP.falcon;
     const mods = ship.mods;
-    const up = save.upgrades;
+    // прокачка берётся у конкретного корпуса — у каждого своя
+    const up = shipUpgradesOf(save, save.ship);
+    this.techLevel = up.tech;
+    this.techId = ship.tech;
+    this.techT = 1.4;
+    this.arcs.length = 0;
+    this.vortex = null;
     this.fireRate = 4.1 * (1 + 0.22 * up.rate) * mods.rate;
     this.damage = 1 * (1 + 0.4 * up.power) * mods.damage;
     this.streamsBase = 1 + up.streams + mods.streams;
@@ -638,8 +634,20 @@ export class GameEngine {
     this.parts.push(p);
   }
 
-  private addPBullet(x: number, y: number, vx: number, vy: number, dmg: number, r: number, power: boolean) {
-    const b = this.freePB.pop() ?? { x: 0, y: 0, vx: 0, vy: 0, dmg: 0, r: 0, power: false };
+  private addPBullet(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    dmg: number,
+    r: number,
+    power: boolean,
+    kind = 0,
+    color = '',
+  ) {
+    if (this.pBullets.length > 180) return;
+    const b =
+      this.freePB.pop() ?? { x: 0, y: 0, vx: 0, vy: 0, dmg: 0, r: 0, power: false, kind: 0, life: 0, color: '' };
     b.x = x;
     b.y = y;
     b.vx = vx;
@@ -647,6 +655,9 @@ export class GameEngine {
     b.dmg = dmg;
     b.r = r;
     b.power = power;
+    b.kind = kind;
+    b.life = 0;
+    b.color = color || (power ? '#f472b6' : '#67e8f9');
     this.pBullets.push(b);
   }
 
@@ -671,17 +682,24 @@ export class GameEngine {
     return Math.max(2500, base * (this.daily?.bossInterval ?? 1));
   }
 
+  /**
+   * Единая кривая сложности. `c` — абстрактный «уровень давления»:
+   * растёт от счёта и времени, модификаторы режима/дня применяются один раз.
+   */
   private updateDiff() {
     const mul = this.modeDef.difficultyMul;
-    const c = (this.score / 3200 + this.runTime / 300) * mul;
+    // прогресс ускоряется на больших счетах, но без скачков (sqrt-добавка)
+    const base = this.score / 2600 + this.runTime / 240;
+    const late = Math.sqrt(Math.max(0, this.score - 30000) / 9000);
+    const c = (base + late) * mul;
     const d = this.d;
     d.c = c;
-    d.speed = (1 + Math.min(1.6, c * 0.16)) * (this.daily?.enemySpeed ?? 1);
-    d.hp = (1 + c * 0.3) * (this.daily?.enemyHp ?? 1);
-    d.interval = Math.max(0.26, 1.05 - Math.min(c, 12) * 0.066) / (this.daily?.spawnRate ?? 1);
-    d.bullet = 1 + Math.min(0.8, c * 0.07);
-    d.aggro = Math.min(1.25, 0.3 + c * 0.1);
-    d.burst = c > 6 ? 3 : c > 2.5 ? 2 : 1;
+    d.speed = (1 + Math.min(1.9, c * 0.17)) * (this.daily?.enemySpeed ?? 1);
+    d.hp = (1 + c * 0.42) * (this.daily?.enemyHp ?? 1);
+    d.interval = Math.max(0.17, 1.0 - Math.min(c, 14) * 0.062) / (this.daily?.spawnRate ?? 1);
+    d.bullet = 1 + Math.min(1, c * 0.08);
+    d.aggro = Math.min(1.9, 0.35 + c * 0.13);
+    d.burst = c > 8 ? 4 : c > 5 ? 3 : c > 2.2 ? 2 : 1;
   }
 
   // ── main loop ──────────────────────────────────────────────────────────────
@@ -700,7 +718,7 @@ export class GameEngine {
     const live = this.phase === 'playing' || this.phase === 'intro' || this.phase === 'dying';
     this.updateDiff();
     const bgSpeed = live ? 1 + Math.min(1.5, this.d.c * 0.12) : 0.45;
-    this.updateBackground(dt, bgSpeed);
+    this.bg.update(dt, bgSpeed, this.w, this.h, this.u);
 
     if (!live) {
       this.updateParticles(dt);
@@ -747,6 +765,7 @@ export class GameEngine {
     if (this.flushT > 1.2) {
       this.flushT = 0;
       this.flush(false);
+      this.checkTracks();
     }
     this.hudT += dt;
     if (this.hudT > 0.1) {
@@ -758,11 +777,27 @@ export class GameEngine {
   private updateWorld(dt: number, dying: boolean) {
     this.updateBullets(dt, dying);
     this.updateEnemies(dt, dying);
+    this.updateTechEffects(dt);
+    // «Крепость» непрерывно гасит снаряды, попавшие в поле
+    if (this.ability.isActive && this.ability.def.id === 'fortress') {
+      if (this.clearBulletsNear(this.px, this.py, 44 * this.u, '#34d399') > 0) sfx.play('shieldHit');
+    }
+    // луч «Новы» испаряет всё в своей колонне
+    if (this.ability.isActive && this.ability.def.id === 'novabeam') {
+      for (let i = this.eBullets.length - 1; i >= 0; i--) {
+        const b = this.eBullets[i];
+        if (b.y > this.py || Math.abs(b.x - this.px) > 20 * this.u) continue;
+        this.addPart(b.x, b.y, 0, -120 * this.u, 0.25, 8 * this.u, '#f9a8d4', 1.6, 0);
+        this.freeEB.push(b);
+        this.eBullets.splice(i, 1);
+      }
+    }
     this.updatePickups(dt);
     this.updateParticles(dt);
     this.updateTexts(dt);
     this.shake = Math.max(0, this.shake - dt * 1.6);
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 1.8);
+    this.flashWhite = Math.max(0, this.flashWhite - dt * 2.4);
     this.muzzleT = Math.max(0, this.muzzleT - dt);
     this.rippleT = Math.max(0, this.rippleT - dt * 2.6);
     this.voidMaxFx = Math.max(0, this.voidMaxFx - dt * 0.8);
@@ -791,14 +826,19 @@ export class GameEngine {
           this.dashVX = 0;
           this.dashVY = -900 * this.u;
         }
-        this.burst(this.px, this.py, '#22d3ee', 16, 260);
+        // рывок выжигает всё, что летело в корабль — это спасательный инструмент
+        this.clearBulletsNear(this.px, this.py, 190 * this.u, '#22d3ee');
+        this.burst(this.px, this.py, '#22d3ee', 22, 300);
+        this.shake = Math.min(1, this.shake + 0.3);
         break;
       }
       case 'afterburner':
-        this.burst(this.px, this.py + 14 * this.u, '#a78bfa', 20, 240);
+        this.clearBulletsNear(this.px, this.py, 150 * this.u, '#a78bfa');
+        this.burst(this.px, this.py + 14 * this.u, '#a78bfa', 22, 260);
         break;
       case 'fortress':
-        this.burst(this.px, this.py, '#34d399', 22, 200);
+        this.clearBulletsNear(this.px, this.py, 170 * this.u, '#34d399');
+        this.burst(this.px, this.py, '#34d399', 24, 220);
         this.shake = Math.min(1, this.shake + 0.25);
         break;
       case 'novabeam':
@@ -814,11 +854,29 @@ export class GameEngine {
 
   private onAbilityEnd(def: AbilityDef) {
     if (def.id === 'dash') {
-      this.burst(this.px, this.py, '#a5f3fc', 18, 220);
+      // ударная волна на выходе + запас неуязвимости, чтобы успеть выйти из-под огня
+      this.clearBulletsNear(this.px, this.py, 150 * this.u, '#a5f3fc');
+      this.burst(this.px, this.py, '#a5f3fc', 20, 260);
+      this.invuln = Math.max(this.invuln, 1.5);
       sfx.play('boom');
     }
     this.dashVX = 0;
     this.dashVY = 0;
+  }
+
+  /** Сжигает вражеские снаряды в радиусе. Общий помощник для способностей. */
+  private clearBulletsNear(x: number, y: number, r: number, color: string): number {
+    const r2 = r * r;
+    let n = 0;
+    for (let i = this.eBullets.length - 1; i >= 0; i--) {
+      const b = this.eBullets[i];
+      if (dist2(b.x, b.y, x, y) > r2) continue;
+      this.addPart(b.x, b.y, b.vx * 0.1, b.vy * 0.1, 0.3, 8 * this.u, color, 1.8, 0);
+      this.freeEB.push(b);
+      this.eBullets.splice(i, 1);
+      n++;
+    }
+    return n;
   }
 
   /** VOID COLLAPSE: implode nearby enemy fire into salvage, shred close hostiles. */
@@ -940,6 +998,197 @@ export class GameEngine {
     this.updateFire(dt);
     this.updateBeam(dt);
     this.updateNovaBurst(dt);
+    this.updateTech(dt);
+  }
+
+  // ── уникальная техника корпуса ─────────────────────────────────────────────
+  private updateTech(dt: number) {
+    if (this.techLevel <= 0 || this.phase !== 'playing') return;
+    const def = TECHS[this.techId];
+    const lvl = this.techLevel;
+    this.techT -= dt;
+    if (this.techT > 0) return;
+    this.techT = Math.max(0.22, def.interval * (1 - 0.11 * (lvl - 1)));
+    switch (this.techId) {
+      case 'missiles':
+        this.techMissiles(lvl);
+        break;
+      case 'lightning':
+        this.techLightning(lvl);
+        break;
+      case 'bombs':
+        this.techBomb(lvl);
+        break;
+      case 'drones':
+        this.techDrones(lvl);
+        break;
+      case 'singularity':
+        this.techSingularity(lvl);
+        break;
+    }
+  }
+
+  /** FALCON-7 — залп самонаводящихся ракет. */
+  private techMissiles(lvl: number) {
+    const count = lvl >= 5 ? 3 : lvl >= 3 ? 2 : 1;
+    const dmg = this.totalDamage() * (2.6 + 0.9 * lvl);
+    for (let i = 0; i < count; i++) {
+      const off = (i - (count - 1) / 2) * 16 * this.u;
+      this.addPBullet(this.px + off, this.py - 6 * this.u, off * 2.2, -330 * this.u, dmg, 6 * this.u, true, 1, '#67e8f9');
+    }
+    sfx.play('shoot');
+  }
+
+  /** COMET — ЭМИ-разряд: выжигает подлетающие снаряды и бьёт по врагу. */
+  private techLightning(lvl: number) {
+    const R = (140 + 26 * lvl) * this.u;
+    const R2 = R * R;
+    let zapped = 0;
+    const maxZap = 2 + lvl;
+    for (let i = this.eBullets.length - 1; i >= 0 && zapped < maxZap; i--) {
+      const b = this.eBullets[i];
+      if (dist2(b.x, b.y, this.px, this.py) > R2) continue;
+      this.arcs.push({ x1: this.px, y1: this.py, x2: b.x, y2: b.y, life: 0.22, color: '#c4b5fd' });
+      this.burst(b.x, b.y, '#a78bfa', 3, 90);
+      this.freeEB.push(b);
+      this.eBullets.splice(i, 1);
+      zapped++;
+    }
+    // и добивает ближайшего врага
+    let best = -1;
+    let bestD = R2 * 1.6;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const d = dist2(this.enemies[i].x, this.enemies[i].y, this.px, this.py);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    if (best >= 0) {
+      const e = this.enemies[best];
+      this.arcs.push({ x1: this.px, y1: this.py, x2: e.x, y2: e.y, life: 0.26, color: '#ddd6fe' });
+      e.hp -= this.totalDamage() * (1.6 + 0.8 * lvl);
+      e.flash = 1;
+      this.burst(e.x, e.y, '#a78bfa', 5, 120);
+      if (e.hp <= 0) this.killEnemy(best);
+    }
+    if (zapped || best >= 0) sfx.play('shieldHit');
+  }
+
+  /** TITAN-IX — осколочная бомба. */
+  private techBomb(lvl: number) {
+    const dmg = this.totalDamage() * (1.6 + 0.5 * lvl);
+    this.addPBullet(this.px, this.py - 14 * this.u, 0, -210 * this.u, dmg, 10 * this.u, true, 2, '#34d399');
+  }
+
+  private explodeBomb(x: number, y: number, dmg: number) {
+    const lvl = Math.max(1, this.techLevel);
+    const R = (90 + 14 * lvl) * this.u;
+    const R2 = R * R;
+    this.explode(x, y, '#34d399', 22, 1.5);
+    this.shake = Math.min(1, this.shake + 0.25);
+    sfx.play('bigboom');
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const e = this.enemies[i];
+      if (dist2(e.x, e.y, x, y) > R2) continue;
+      e.hp -= dmg * 1.6;
+      e.flash = 1;
+      if (e.hp <= 0) this.killEnemy(i);
+    }
+    if (this.boss && this.boss.state === 'fight' && dist2(this.boss.x, this.boss.y, x, y) < R2 * 1.5) {
+      this.damageBoss('core', -1, dmg * 1.4);
+    }
+    const shards = 7 + lvl;
+    for (let i = 0; i < shards; i++) {
+      const a = (TAU * i) / shards + Math.random() * 0.2;
+      this.addPBullet(x, y, Math.cos(a) * 430 * this.u, Math.sin(a) * 430 * this.u, dmg * 0.7, 4.4 * this.u, true, 3, '#6ee7b7');
+    }
+  }
+
+  /** NOVA-X — орбитальные дроны ведут свой огонь. */
+  private techDrones(lvl: number) {
+    const dmg = this.totalDamage() * (0.4 + 0.12 * lvl);
+    const r = 34 * this.u;
+    const a = this.time * 2.2;
+    const n = lvl >= 4 ? 3 : 2;
+    for (let i = 0; i < n; i++) {
+      const ang = a + (TAU * i) / n;
+      const dx = this.px + Math.cos(ang) * r;
+      const dy = this.py + Math.sin(ang) * r * 0.55;
+      this.addPBullet(dx, dy, 0, -700 * this.u, dmg, 3.6 * this.u, false, 0, '#f9a8d4');
+    }
+  }
+
+  /** VOID-X — микро-сингулярность. */
+  private techSingularity(lvl: number) {
+    this.vortex = {
+      x: clamp(this.px, 60 * this.u, this.w - 60 * this.u),
+      y: this.py - 190 * this.u,
+      life: 2.6,
+      max: 2.6,
+      r: (80 + 13 * lvl) * this.u,
+    };
+    sfx.play('voidmax');
+  }
+
+  /** Эффекты техники: дуги молний и воронка. */
+  private updateTechEffects(dt: number) {
+    for (let i = this.arcs.length - 1; i >= 0; i--) {
+      this.arcs[i].life -= dt;
+      if (this.arcs[i].life <= 0) this.arcs.splice(i, 1);
+    }
+    const v = this.vortex;
+    if (!v) return;
+    v.life -= dt;
+    if (v.life <= 0) {
+      this.explode(v.x, v.y, '#818cf8', 20, 1.4);
+      this.vortex = null;
+      return;
+    }
+    const R2 = v.r * v.r;
+    const dmg = this.totalDamage() * (0.8 + 0.3 * this.techLevel) * dt * 6;
+    for (let i = this.eBullets.length - 1; i >= 0; i--) {
+      const b = this.eBullets[i];
+      const dx = v.x - b.x;
+      const dy = v.y - b.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R2 * 2.2) continue;
+      const len = Math.sqrt(d2) || 1;
+      b.vx += (dx / len) * 900 * dt;
+      b.vy += (dy / len) * 900 * dt;
+      if (d2 < 300 * this.u) {
+        this.spawnCoin(b.x, b.y, 30);
+        this.freeEB.push(b);
+        this.eBullets.splice(i, 1);
+      }
+    }
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const e = this.enemies[i];
+      const dx = v.x - e.x;
+      const dy = v.y - e.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > R2) continue;
+      const len = Math.sqrt(d2) || 1;
+      e.x += (dx / len) * 60 * dt;
+      e.y += (dy / len) * 60 * dt;
+      e.hp -= dmg;
+      e.flash = 1;
+      if (e.hp <= 0) this.killEnemy(i);
+    }
+    if (Math.random() < dt * 40) {
+      const a = Math.random() * TAU;
+      this.addPart(
+        v.x + Math.cos(a) * v.r,
+        v.y + Math.sin(a) * v.r,
+        -Math.cos(a) * 160,
+        -Math.sin(a) * 160,
+        0.4,
+        7 * this.u,
+        '#818cf8',
+        0.6,
+        0,
+      );
+    }
   }
 
   private emitTrail(dt: number, power: number) {
@@ -1055,8 +1304,48 @@ export class GameEngine {
 
     for (let i = this.pBullets.length - 1; i >= 0; i--) {
       const b = this.pBullets[i];
+      b.life += dt;
+      // ракеты сами доводятся до ближайшей цели
+      if (b.kind === 1) {
+        let tx = -1;
+        let ty = -1;
+        let bestD = Infinity;
+        for (const e of this.enemies) {
+          if (e.y > b.y + 40) continue;
+          const d = dist2(b.x, b.y, e.x, e.y);
+          if (d < bestD) {
+            bestD = d;
+            tx = e.x;
+            ty = e.y;
+          }
+        }
+        if (tx < 0 && this.boss && this.boss.state === 'fight') {
+          tx = this.boss.x;
+          ty = this.boss.y;
+        }
+        if (tx >= 0) {
+          const dx = tx - b.x;
+          const dy = ty - b.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const sp = Math.min(900 * this.u, Math.hypot(b.vx, b.vy) + 900 * this.u * dt);
+          b.vx = lerp(b.vx, (dx / len) * sp, clamp(dt * 5.5, 0, 1));
+          b.vy = lerp(b.vy, (dy / len) * sp, clamp(dt * 5.5, 0, 1));
+        } else {
+          b.vy -= 500 * this.u * dt;
+        }
+        if (Math.random() < dt * 50) {
+          this.addPart(b.x, b.y, 0, 60 * this.u, 0.28, 7 * this.u, '#67e8f9', 1.4, 0);
+        }
+      }
       b.x += b.vx * dt;
       b.y += b.vy * dt;
+      // бомба детонирует на излёте
+      if (b.kind === 2 && (b.life > 1.25 || b.y < this.h * 0.18)) {
+        this.explodeBomb(b.x, b.y, b.dmg);
+        this.freePB.push(b);
+        this.pBullets.splice(i, 1);
+        continue;
+      }
       if (b.y < -30 || b.y > this.h + 30 || b.x < -30 || b.x > this.w + 30) {
         this.freePB.push(b);
         this.pBullets.splice(i, 1);
@@ -1071,10 +1360,16 @@ export class GameEngine {
         const e = this.enemies[j];
         const rr = (e.r + b.r) * (e.r + b.r);
         if (dist2(b.x, b.y, e.x, e.y) < rr) {
+          if (b.kind === 2) {
+            this.explodeBomb(b.x, b.y, b.dmg);
+            this.freePB.push(b);
+            this.pBullets.splice(i, 1);
+            break;
+          }
           e.hp -= b.dmg;
           e.flash = 1;
-          this.burst(b.x, b.y, '#a5f3fc', 3, 90);
-          sfx.play('hit');
+          this.burst(b.x, b.y, b.kind === 1 ? '#67e8f9' : '#a5f3fc', b.kind === 1 ? 10 : 3, b.kind === 1 ? 180 : 90);
+          sfx.play(b.kind === 1 ? 'boom' : 'hit');
           this.freePB.push(b);
           this.pBullets.splice(i, 1);
           if (e.hp <= 0) this.killEnemy(j);
@@ -1159,7 +1454,7 @@ export class GameEngine {
       return;
     }
     // FORTRESS soaks most of the hit instead of losing integrity
-    if (am.damageTakenMul < 0.5 && Math.random() > am.damageTakenMul * 2) {
+    if (am.damageTakenMul < 0.5 && this.rng() > am.damageTakenMul * 2) {
       this.rippleT = 1;
       this.burst(this.px, this.py, '#34d399', 10, 180);
       sfx.play('shieldHit');
@@ -1465,7 +1760,7 @@ export class GameEngine {
     const tier = this.modeDef.bossRush ? this.bossTier : Math.max(1, Math.floor(this.nextBoss / this.bossInterval()));
     const id = bossForTier(this.modeDef.bossRush ? this.bossTier : tier);
     const hpScale = clamp(this.d.hp, 1, 2.4) * this.modeDef.difficultyMul * (this.modeDef.bossRush ? 1 + 0.12 * (this.bossTier - 1) : 1);
-    this.boss = createBoss(id, tier, hpScale, this.w, this.h, this.u);
+    this.boss = createBoss(id, tier, hpScale, this.w, this.h, this.u, this.rng);
     this.pushBanner(this.boss.name, this.boss.def.subtitle, this.boss.def.color, 2.6);
     sfx.play('warn');
     this.emitHud();
@@ -1482,10 +1777,9 @@ export class GameEngine {
     updateBoss(b, dt, this.bossHooks);
 
     // lance contact damage
-    if (b.id === 'leviathan' && b.laserState === 2 && this.phase === 'playing') {
-      if (Math.abs(this.px - b.laserX) < 15 * this.u + 10 * this.u && this.py > b.y) {
-        if (this.invuln <= 0 && !this.ability.modifiers().invulnerable) this.damagePlayer();
-      }
+    const zone = bossLaserZone(b, this.u);
+    if (zone && this.phase === 'playing' && Math.abs(this.px - zone.x) < zone.halfW + 10 * this.u && this.py > b.y) {
+      if (this.invuln <= 0 && !this.ability.modifiers().invulnerable) this.damagePlayer();
     }
 
     // ramming the hull
@@ -1500,6 +1794,14 @@ export class GameEngine {
 
   private finishBossDeath(b: BossEntity) {
     this.boss = null;
+    this.flashWhite = 0.65;
+    // convert leftover enemy fire into harmless sparks — clean handoff, no strays
+    for (let i = this.eBullets.length - 1; i >= 0; i--) {
+      const bl = this.eBullets[i];
+      this.addPart(bl.x, bl.y, bl.vx * 0.08, bl.vy * 0.08, 0.35, 9 * this.u, bl.color, 1.8, 0);
+      this.freeEB.push(bl);
+      this.eBullets.splice(i, 1);
+    }
     const bonus = 1500 + 500 * (b.tier - 1);
     this.addScore(bonus);
     this.addFloat(b.x, b.y, `+${Math.round(bonus * this.scoreMul)}`, '#f472b6', 20);
@@ -1544,13 +1846,17 @@ export class GameEngine {
   }
 
   private dropPowerup(x: number, y: number) {
+    // ремонт выпадает только при повреждённом корпусе — и тем чаще, чем хуже дела
+    const hurt = this.maxHp - this.hp;
+    const weightOf = (p: (typeof POWERUPS)[number]) =>
+      p.id === 'repair' ? (hurt > 0 ? p.weight * (1 + hurt) : 0) : p.weight;
     let total = 0;
-    for (const p of POWERUPS) if (p.minScore <= this.score) total += p.weight;
+    for (const p of POWERUPS) if (p.minScore <= this.score) total += weightOf(p);
     let roll = this.rng() * total;
     let def = POWERUPS[0];
     for (const p of POWERUPS) {
       if (p.minScore > this.score) continue;
-      roll -= p.weight;
+      roll -= weightOf(p);
       if (roll <= 0) {
         def = p;
         break;
@@ -1623,6 +1929,22 @@ export class GameEngine {
 
   private applyPowerup(p: PowerEnt) {
     const def = POWERUP_MAP[p.type];
+    // мгновенный ремонт корпуса
+    if (def.instant) {
+      if (this.hp < this.maxHp) {
+        this.hp += 1;
+        this.addFloat(p.x, p.y, '+1 КОРПУС', '#4ade80', 15);
+        this.pushBanner('РЕМОНТ КОРПУСА', 'ЦЕЛОСТНОСТЬ ВОССТАНОВЛЕНА', '#4ade80', 1.4);
+      } else {
+        this.addScore(250);
+        this.addFloat(p.x, p.y, '+250', '#4ade80', 14);
+      }
+      this.burst(p.x, p.y, '#4ade80', 20, 220);
+      this.rippleT = 1;
+      sfx.play('powerup');
+      this.emitHud();
+      return;
+    }
     const dur = p.type === 'shield' ? this.shieldDur : def.duration;
     this.pw[p.type] = dur;
     this.pwMax[p.type] = dur;
@@ -1719,12 +2041,13 @@ export class GameEngine {
           unlockId === 'ship:voidx' && !s.shipsOwned.includes('voidx') ? [...s.shipsOwned, 'voidx' as ShipId] : s.shipsOwned;
         return {
           ...s,
+          coins: s.coins + m.coins,
           checkpoints: [...s.checkpoints, m.score].sort((a, b) => a - b),
           unlocks,
           shipsOwned,
         };
       });
-      this.pushBanner(m.name, m.detail.toUpperCase(), m.color, 2.6);
+      this.pushBanner(`РАНГ: ${m.name}`, `${m.detail.toUpperCase()} · +${m.coins} МОНЕТ`, m.color, 2.6);
       sfx.play('checkpoint');
       this.burst(this.px, this.py - 40 * this.u, m.color, 22, 260);
     }
@@ -1738,6 +2061,31 @@ export class GameEngine {
       }
     }
     this.checkAchievements();
+  }
+
+  /**
+   * Треки наград: каждая ячейка растёт по рангам (бронза → бездна).
+   * Трек «score» не платит отдельно — его ступени уже оплачены вехами.
+   */
+  private checkTracks() {
+    const save = this.api.getSave();
+    for (const def of TRACKS) {
+      if (def.id === 'score') continue;
+      const have = save.tracks[def.id] ?? 0;
+      const reached = trackReached(def, trackValue(def, save));
+      if (reached <= have) continue;
+      let coins = 0;
+      for (let i = have; i < reached; i++) coins += def.coins[i] ?? 0;
+      const rankName = RANKS[Math.min(RANKS.length - 1, reached - 1)].name;
+      const color = RANKS[Math.min(RANKS.length - 1, reached - 1)].color;
+      this.api.commit((s) => ({
+        ...s,
+        coins: s.coins + coins,
+        tracks: { ...s.tracks, [def.id]: reached },
+      }));
+      this.pushBanner(`${def.name} — ${rankName}`, `+${coins} МОНЕТ`, color, 2.2);
+      sfx.play('checkpoint');
+    }
   }
 
   private grantAchievement(id: string) {
@@ -1924,44 +2272,7 @@ export class GameEngine {
     });
   }
 
-  // ── background ─────────────────────────────────────────────────────────────
-  private updateBackground(dt: number, speed: number) {
-    for (const st of this.stars) {
-      const v = (st.z === 0 ? 26 : st.z === 1 ? 64 : 130) * speed * this.u;
-      st.y += v * dt;
-      st.tw += dt * 3;
-      if (st.y > this.h + 4) {
-        st.y = -4;
-        st.x = Math.random() * this.w;
-      }
-    }
-    for (const n of this.nebulas) {
-      n.y += n.vy * speed * dt;
-      if (n.y - n.r > this.h) {
-        n.y = -n.r;
-        n.x = (0.1 + Math.random() * 0.8) * this.w;
-      }
-    }
-    if (this.shootStar) {
-      const s = this.shootStar;
-      s.x += s.vx * dt;
-      s.y += s.vy * dt;
-      s.life -= dt;
-      if (s.life <= 0 || s.x > this.w + 80) this.shootStar = null;
-    } else {
-      this.shootT -= dt;
-      if (this.shootT <= 0) {
-        this.shootT = 5 + Math.random() * 6;
-        this.shootStar = {
-          x: -40 + Math.random() * this.w * 0.5,
-          y: Math.random() * this.h * 0.3,
-          vx: (380 + Math.random() * 240) * this.u,
-          vy: (120 + Math.random() * 100) * this.u,
-          life: 0.7 + Math.random() * 0.4,
-        };
-      }
-    }
-  }
+  // ── background (delegated to the isolated subsystem) ───────────────────────
 
   // ── rendering ──────────────────────────────────────────────────────────────
   private render() {
@@ -1970,53 +2281,17 @@ export class GameEngine {
     ctx.clearRect(0, 0, this.w, this.h);
 
     const hardcore = this.gameMode === 'hardcore' && this.phase !== 'menu' && this.phase !== 'over';
-    const bg = ctx.createLinearGradient(0, 0, 0, this.h);
-    bg.addColorStop(0, hardcore ? '#1a0709' : '#070b1c');
-    bg.addColorStop(0.5, '#05070f');
-    bg.addColorStop(1, '#03040c');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, this.w, this.h);
-
-    for (const n of this.nebulas) {
-      const color = hardcore
-        ? 'rgba(140,20,30,0.14)'
-        : n.hue === 0
-          ? 'rgba(99,60,180,0.16)'
-          : n.hue === 1
-            ? 'rgba(24,80,140,0.15)'
-            : 'rgba(150,40,110,0.1)';
-      drawGlow(ctx, color, n.x, n.y, n.r, 1);
-    }
-
-    if (this.phase === 'menu' || this.phase === 'over') this.renderPlanet(ctx);
-
     const live = this.phase === 'playing' || this.phase === 'dying' || this.phase === 'intro';
     const stretch = live ? 1 + Math.min(1.6, this.d.c * 0.12) : 0.5;
-    for (const st of this.stars) {
-      const baseA = st.z === 0 ? 0.35 : st.z === 1 ? 0.6 : 0.95;
-      const a = baseA * (0.72 + 0.28 * Math.sin(st.tw));
-      ctx.fillStyle = st.z === 2 ? `rgba(190,230,255,${a})` : `rgba(220,228,255,${a})`;
-      const sz = (st.z === 0 ? 1 : st.z === 1 ? 1.4 : 2) * this.u;
-      if (st.z === 2 && stretch > 1.05) ctx.fillRect(st.x, st.y, 1.2 * this.u, sz * (2.4 * stretch));
-      else ctx.fillRect(st.x, st.y, sz, sz);
-    }
-
-    if (this.shootStar) {
-      const s = this.shootStar;
-      const a = clamp(s.life / 0.9, 0, 1);
-      ctx.save();
-      ctx.globalAlpha = a;
-      const grad = ctx.createLinearGradient(s.x, s.y, s.x - s.vx * 0.14, s.y - s.vy * 0.14);
-      grad.addColorStop(0, 'rgba(220,240,255,0.95)');
-      grad.addColorStop(1, 'rgba(220,240,255,0)');
-      ctx.strokeStyle = grad;
-      ctx.lineWidth = 1.6 * this.u;
-      ctx.beginPath();
-      ctx.moveTo(s.x, s.y);
-      ctx.lineTo(s.x - s.vx * 0.14, s.y - s.vy * 0.14);
-      ctx.stroke();
-      ctx.restore();
-    }
+    this.bg.renderSpace(ctx, {
+      w: this.w,
+      h: this.h,
+      u: this.u,
+      time: this.time,
+      hardcore,
+      menuPhase: this.phase === 'menu' || this.phase === 'over',
+      stretch,
+    });
 
     ctx.save();
     if (this.shake > 0) {
@@ -2107,14 +2382,84 @@ export class GameEngine {
 
     if (this.phase !== 'over' && this.phase !== 'dying' && this.phase !== 'menu') this.renderPlayer(ctx);
 
-    // player bullets
+    // player bullets + техника
     for (const b of this.pBullets) {
-      const color = b.power ? '#f472b6' : '#67e8f9';
-      drawGlow(ctx, color, b.x, b.y, b.r * 3, 0.9, true);
+      const color = b.color || (b.power ? '#f472b6' : '#67e8f9');
+      if (b.kind === 2) {
+        // бомба
+        const pulse = 1 + 0.18 * Math.sin(this.time * 24);
+        drawGlow(ctx, color, b.x, b.y, b.r * 2.6 * pulse, 1, true);
+        ctx.fillStyle = '#0b1f17';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r * pulse, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        continue;
+      }
+      drawGlow(ctx, color, b.x, b.y, b.r * (b.kind === 1 ? 3.6 : 3), 0.9, true);
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
-      ctx.ellipse(b.x, b.y, b.r * 0.55, b.r * 1.7, Math.atan2(b.vy, b.vx) + Math.PI / 2, 0, TAU);
+      const ang = Math.atan2(b.vy, b.vx) + Math.PI / 2;
+      if (b.kind === 1) ctx.ellipse(b.x, b.y, b.r * 0.42, b.r * 2.1, ang, 0, TAU);
+      else ctx.ellipse(b.x, b.y, b.r * 0.55, b.r * 1.7, ang, 0, TAU);
       ctx.fill();
+    }
+
+    // дуги ЭМИ-молнии
+    for (const a of this.arcs) {
+      const k = clamp(a.life / 0.24, 0, 1);
+      ctx.save();
+      ctx.globalAlpha = k;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = a.color;
+      ctx.lineWidth = 2.4 * this.u;
+      ctx.beginPath();
+      ctx.moveTo(a.x1, a.y1);
+      const segs = 4;
+      for (let i = 1; i <= segs; i++) {
+        const t = i / segs;
+        const jitter = i === segs ? 0 : (Math.random() * 2 - 1) * 14 * this.u;
+        ctx.lineTo(a.x1 + (a.x2 - a.x1) * t + jitter, a.y1 + (a.y2 - a.y1) * t + jitter * 0.5);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // орбитальные дроны NOVA-X
+    if (this.techLevel > 0 && this.techId === 'drones' && this.phase === 'playing') {
+      const n = this.techLevel >= 4 ? 3 : 2;
+      for (let i = 0; i < n; i++) {
+        const ang = this.time * 2.2 + (TAU * i) / n;
+        const dx = this.px + Math.cos(ang) * 34 * this.u;
+        const dy = this.py + Math.sin(ang) * 34 * this.u * 0.55;
+        drawGlow(ctx, '#f472b6', dx, dy, 11 * this.u, 0.9, true);
+        ctx.fillStyle = '#fdf2f8';
+        ctx.fillRect(dx - 2.6 * this.u, dy - 2.6 * this.u, 5.2 * this.u, 5.2 * this.u);
+      }
+    }
+
+    // сингулярность VOID-X
+    const vx = this.vortex;
+    if (vx) {
+      const k = vx.life / vx.max;
+      ctx.save();
+      ctx.translate(vx.x, vx.y);
+      ctx.rotate(this.time * 3);
+      drawGlow(ctx, '#818cf8', 0, 0, vx.r * 1.3, 0.85);
+      ctx.strokeStyle = `rgba(199,210,254,${0.5 + 0.4 * k})`;
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(0, 0, vx.r * (0.4 + 0.3 * i) * (0.75 + 0.25 * k), i * 1.5, i * 1.5 + 4.2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#05061a';
+      ctx.beginPath();
+      ctx.arc(0, 0, vx.r * 0.3, 0, TAU);
+      ctx.fill();
+      ctx.restore();
     }
 
     for (const p of this.parts) {
@@ -2125,38 +2470,8 @@ export class GameEngine {
     ctx.restore();
 
     this.renderTexts(ctx);
-    if (this.vignette) ctx.drawImage(this.vignette, 0, 0, this.w, this.h);
+    this.bg.renderVignette(ctx, this.w, this.h);
     this.renderOverlays(ctx, hardcore);
-  }
-
-  private renderPlanet(ctx: CanvasRenderingContext2D) {
-    const px = this.w * 0.78;
-    const py = this.h * 0.15;
-    const pr = 72 * this.u;
-    drawGlow(ctx, 'rgba(80,140,255,0.28)', px, py, pr * 2.6, 0.9);
-    const pg = ctx.createRadialGradient(px - pr * 0.4, py - pr * 0.45, pr * 0.1, px, py, pr);
-    pg.addColorStop(0, '#2b4d8f');
-    pg.addColorStop(0.55, '#12264d');
-    pg.addColorStop(1, '#050b1c');
-    ctx.fillStyle = pg;
-    ctx.beginPath();
-    ctx.arc(px, py, pr, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(2,4,12,0.55)';
-    ctx.beginPath();
-    ctx.arc(px + pr * 0.34, py + pr * 0.18, pr * 0.92, 0, TAU);
-    ctx.arc(px, py, pr, 0, TAU);
-    ctx.fill('evenodd');
-    ctx.strokeStyle = 'rgba(120,180,255,0.35)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.arc(px, py, pr, Math.PI * 0.9, Math.PI * 1.9);
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(140,170,255,0.16)';
-    ctx.lineWidth = 5 * this.u;
-    ctx.beginPath();
-    ctx.ellipse(px, py, pr * 1.7, pr * 0.42, -0.28, Math.PI * 0.95, Math.PI * 1.95);
-    ctx.stroke();
   }
 
   private renderBeam(ctx: CanvasRenderingContext2D) {
@@ -2178,7 +2493,6 @@ export class GameEngine {
 
   private renderPlayer(ctx: CanvasRenderingContext2D) {
     const blink = this.invuln > 0 && Math.floor(this.time * 14) % 2 === 0 && this.phase === 'playing';
-    const am = this.ability.modifiers();
     const dashing = this.ability.isActive && this.ability.def.id === 'dash';
     const fortress = this.ability.isActive && this.ability.def.id === 'fortress';
     const charging = this.ability.isCharging;
@@ -2286,8 +2600,6 @@ export class GameEngine {
         ctx.restore();
       }
     }
-
-    void am;
   }
 
   private renderTexts(ctx: CanvasRenderingContext2D) {
@@ -2337,6 +2649,15 @@ export class GameEngine {
   }
 
   private renderOverlays(ctx: CanvasRenderingContext2D, hardcore: boolean) {
+    // white shock flash on capital ship destruction
+    if (this.flashWhite > 0) {
+      ctx.save();
+      ctx.globalAlpha = this.flashWhite * 0.6;
+      ctx.fillStyle = '#e8f6ff';
+      ctx.fillRect(0, 0, this.w, this.h);
+      ctx.restore();
+    }
+
     if (this.hurtFlash > 0) {
       ctx.save();
       ctx.globalAlpha = this.hurtFlash * 0.32;

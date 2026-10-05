@@ -1,8 +1,17 @@
-import type { GameMode, SaveData } from './types';
+import type { GameMode, SaveData, ShipId, ShipUpgrades } from './types';
 import { todayKey } from './dailyRun';
+import { emptyUpgrades } from './content';
 
-const KEY = 'nova_strike_save_v1'; // key kept stable so v1 saves keep loading
-export const SAVE_VERSION = 4;
+const KEY = 'nova_strike_save_v1'; // ключ стабилен — старые сейвы продолжают грузиться
+export const SAVE_VERSION = 5;
+
+const SHIP_IDS: ShipId[] = ['falcon', 'comet', 'titan', 'nova', 'voidx'];
+
+function emptyShipUpgrades(): Record<ShipId, ShipUpgrades> {
+  const out = {} as Record<ShipId, ShipUpgrades>;
+  for (const id of SHIP_IDS) out[id] = emptyUpgrades();
+  return out;
+}
 
 export function defaultSave(): SaveData {
   return {
@@ -10,11 +19,12 @@ export function defaultSave(): SaveData {
     best: 0,
     coins: 0,
     muted: false,
-    upgrades: { power: 0, rate: 0, streams: 0, hull: 0, shield: 0, magnet: 0 },
+    shipUpgrades: emptyShipUpgrades(),
     checkpoints: [],
     ship: 'falcon',
     shipsOwned: ['falcon'],
     achievements: [],
+    tracks: {},
     stats: {
       kills: 0,
       totalCoins: 0,
@@ -32,20 +42,24 @@ export function defaultSave(): SaveData {
   };
 }
 
-/** Milestone scores → unlock ids, applied on load so old saves gain unlocks. */
+/** Пороги счёта → id разблокировок (для старых сейвов без поля unlocks). */
 const UNLOCK_BY_SCORE: { score: number; id: string }[] = [
-  { score: 50000, id: 'endless' },
-  { score: 100000, id: 'bossrush' },
+  { score: 60000, id: 'endless' },
+  { score: 120000, id: 'bossrush' },
   { score: 250000, id: 'hardcore' },
   { score: 500000, id: 'ship:voidx' },
 ];
 
-function migrate(raw: Partial<SaveData>): SaveData {
+/** Старое сохранение могло держать одну общую прокачку в поле `upgrades`. */
+interface LegacySave extends Partial<SaveData> {
+  upgrades?: Partial<ShipUpgrades>;
+}
+
+function migrate(raw: LegacySave): SaveData {
   const sourceVersion = typeof raw.v === 'number' ? raw.v : 1;
   const d = defaultSave();
 
-  // v3 — это была одноразовая выдача тестового прогресса; откатываем её
-  // (сохраняем только настройку звука и дата-метку).
+  // v3 — разовая тестовая выдача прогресса; откатываем её полностью
   if (sourceVersion === 3) {
     return { ...d, muted: !!raw.muted, daily: { ...d.daily, ...(raw.daily ?? {}) } };
   }
@@ -54,17 +68,30 @@ function migrate(raw: Partial<SaveData>): SaveData {
     ...d,
     ...raw,
     v: SAVE_VERSION,
-    upgrades: { ...d.upgrades, ...(raw.upgrades ?? {}) },
+    shipUpgrades: emptyShipUpgrades(),
     stats: { ...d.stats, ...(raw.stats ?? {}) },
     checkpoints: Array.isArray(raw.checkpoints) ? [...raw.checkpoints].sort((a, b) => a - b) : [],
     achievements: Array.isArray(raw.achievements) ? raw.achievements : [],
     shipsOwned: Array.isArray(raw.shipsOwned) && raw.shipsOwned.length ? raw.shipsOwned : ['falcon'],
+    tracks: { ...(raw.tracks ?? {}) },
     unlocks: Array.isArray(raw.unlocks) ? [...raw.unlocks] : [],
     bestByMode: (raw.bestByMode ?? {}) as Partial<Record<GameMode, number>>,
     daily: { ...d.daily, ...(raw.daily ?? {}) },
   };
 
-  // v1 → v2/v4: derive milestone unlocks from the historic best score
+  // прокачка каждого корпуса (новая схема)
+  if (raw.shipUpgrades) {
+    for (const id of SHIP_IDS) {
+      save.shipUpgrades[id] = { ...emptyUpgrades(), ...(raw.shipUpgrades[id] ?? {}) };
+    }
+  } else if (raw.upgrades) {
+    // v<5: общая прокачка переносится на стартовый корпус
+    save.shipUpgrades.falcon = { ...emptyUpgrades(), ...raw.upgrades };
+  }
+
+  // старые пороги 50 000 / 100 000 больше не используются — чистим мусор
+  save.checkpoints = save.checkpoints.filter((c) => c !== 50000 && c !== 100000);
+
   for (const u of UNLOCK_BY_SCORE) {
     if (save.best >= u.score) {
       if (!save.checkpoints.includes(u.score)) save.checkpoints.push(u.score);
@@ -75,12 +102,11 @@ function migrate(raw: Partial<SaveData>): SaveData {
   if (save.unlocks.includes('ship:voidx') && !save.shipsOwned.includes('voidx')) {
     save.shipsOwned.push('voidx');
   }
-  // roll the daily record over to a new day
+
   const today = todayKey();
   if (save.daily.date !== today) {
     save.daily = { date: today, best: 0, runs: 0, lastScore: 0 };
   }
-  // a ship that no longer exists (or is locked) falls back to the starter
   if (!save.shipsOwned.includes(save.ship)) save.ship = 'falcon';
   return save;
 }
@@ -89,8 +115,8 @@ export function loadSave(): SaveData {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaultSave();
-    const save = migrate(JSON.parse(raw) as Partial<SaveData>);
-    // Lock the migrated version in so one-time migrations never repeat.
+    const save = migrate(JSON.parse(raw) as LegacySave);
+    // фиксируем новую версию, чтобы разовые миграции не повторялись
     persist(save);
     return save;
   } catch {
@@ -102,6 +128,6 @@ export function persist(save: SaveData): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(save));
   } catch {
-    // storage unavailable (private mode) — game still runs
+    // хранилище недоступно (приватный режим) — игра всё равно работает
   }
 }

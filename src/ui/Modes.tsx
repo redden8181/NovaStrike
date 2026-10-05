@@ -33,9 +33,7 @@ export function Modes({
   onBack: () => void;
 }) {
   const daily = buildDaily();
-  const unlockedCps = MILESTONES.filter((m) => m.kind === 'checkpoint' && save.checkpoints.includes(m.score)).map(
-    (m) => m.score,
-  );
+  const unlockedCps = MILESTONES.filter((m) => m.checkpoint && save.checkpoints.includes(m.score)).map((m) => m.score);
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-[#02030a]/85 backdrop-blur-md">

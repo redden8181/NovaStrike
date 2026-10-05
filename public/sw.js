@@ -4,13 +4,13 @@
    - ассеты: stale-while-revalidate
    - при изменении sw.js (смените VERSION при релизе) все клиенты обновляются сами */
 
-const VERSION = 'nova-strike-v1.2.2';
+const VERSION = 'nova-strike-v1.4.0';
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './icons/app-icon-512.png',
-  './icons/app-icon-maskable.png',
+  './icons/app-icon-512.jpg',
+  './icons/app-icon-maskable.jpg',
 ];
 
 self.addEventListener('install', (event) => {

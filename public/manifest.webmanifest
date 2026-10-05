@@ -1,27 +1,27 @@
 {
-  "name": "NOVA STRIKE — Космический шутер",
+  "name": "NOVA STRIKE",
   "short_name": "NOVA STRIKE",
-  "description": "Аркадный космический шутер. Работает полностью офлайн. Веди пальцем — пушки стреляют сами.",
-  "id": "./",
-  "start_url": "./",
-  "scope": "./",
+  "description": "Аркадный космический шутер. Работает полностью офлайн. Тяни пальцем — пушки стреляют сами.",
+  "id": ".",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#05070f",
+  "background_color": "#02030a",
   "theme_color": "#05070f",
   "lang": "ru",
   "categories": ["games", "entertainment"],
   "icons": [
     {
-      "src": "icons/app-icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "icons/app-icon-512.jpg",
+      "sizes": "any",
+      "type": "image/jpeg",
       "purpose": "any"
     },
     {
-      "src": "icons/app-icon-maskable.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "icons/app-icon-maskable.jpg",
+      "sizes": "any",
+      "type": "image/jpeg",
       "purpose": "maskable"
     }
   ]

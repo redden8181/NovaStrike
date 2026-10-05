@@ -4,7 +4,7 @@ import type { GameMode, HudState, RunResult, SaveData, ShipId, UpgradeId } from 
 import { loadSave, persist } from './game/storage';
 import { GameEngine } from './game/engine';
 import { sfx } from './game/audio';
-import { SHIP_MAP, upgradeCost, UPGRADE_MAP } from './game/content';
+import { SHIP_MAP, shipUpgradesOf, upgradeCost, UPGRADE_MAP } from './game/content';
 import { isModeUnlocked, MODE_MAP } from './game/modes';
 import { Hud } from './ui/Hud';
 import { Menu } from './ui/Menu';
@@ -90,12 +90,21 @@ export default function App() {
   const buyUpgrade = useCallback(
     (id: UpgradeId) => {
       const cur = saveRef.current;
-      const lvl = cur.upgrades[id];
+      const ship = cur.ship;
+      const lvl = shipUpgradesOf(cur, ship)[id];
       const cost = upgradeCost(id, lvl);
       if (lvl >= UPGRADE_MAP[id].max || cur.coins < cost) return;
       sfx.unlock();
       sfx.play('powerup');
-      commit((s) => ({ ...s, coins: s.coins - cost, upgrades: { ...s.upgrades, [id]: s.upgrades[id] + 1 } }));
+      // прокачка принадлежит конкретному кораблю
+      commit((s) => {
+        const cursor = shipUpgradesOf(s, ship);
+        return {
+          ...s,
+          coins: s.coins - cost,
+          shipUpgrades: { ...s.shipUpgrades, [ship]: { ...cursor, [id]: cursor[id] + 1 } },
+        };
+      });
     },
     [commit],
   );

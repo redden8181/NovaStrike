@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Check, Coins, Flag, Lock, Sparkles } from 'lucide-react';
 import type { SaveData, ShipId } from '../game/types';
-import { SHIPS } from '../game/content';
+import { SHIPS, TECHS, shipUpgradesOf } from '../game/content';
 import { ABILITIES } from '../game/abilities';
 import { drawGlow, drawShip } from '../game/sprites';
 import { CoinChip, ProgressBar, ScreenHeader } from './bits';
@@ -83,6 +83,8 @@ export function Ships({
             const lockedCp = (ship.requires > 0 && maxCp < ship.requires) || !unlockedSecret;
             const afford = save.coins >= ship.cost;
             const ability = ABILITIES[ship.ability];
+            const techDef = TECHS[ship.tech];
+            const techLvl = shipUpgradesOf(save, ship.id).tech;
 
             return (
               <div
@@ -129,6 +131,24 @@ export function Ships({
                     <span className="num text-[9px] font-bold text-slate-400">КД {ability.cooldown}с</span>
                   </div>
                   <div className="mt-0.5 text-[9.5px] leading-snug font-medium text-slate-400">{ability.desc}</div>
+                </div>
+
+                {/* уникальная техника корпуса */}
+                <div
+                  className="mt-1.5 rounded-2xl px-3 py-2"
+                  style={{ background: `${techDef.color}10`, border: `1px solid ${techDef.color}2e` }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[10px] font-black tracking-[0.12em]" style={{ color: techDef.color }}>
+                      ⚙ {techDef.name}
+                    </span>
+                    {techLvl > 0 && (
+                      <span className="num shrink-0 text-[9px] font-bold" style={{ color: techDef.color }}>
+                        УР. {techLvl}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 text-[9.5px] leading-snug font-medium text-slate-400">{techDef.desc}</div>
                 </div>
 
                 <div className="mt-2.5">

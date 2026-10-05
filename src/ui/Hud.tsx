@@ -1,4 +1,4 @@
-import { Activity, Columns2, Columns3, Flame, Magnet, Pause, Shield, Sparkles, Wind, Zap } from 'lucide-react';
+import { Activity, Columns2, Columns3, Flame, HeartPulse, Magnet, Pause, Shield, Sparkles, Wind, Zap } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AbilityHud, HudState, PowerupType } from '../game/types';
 import type { AbilityIcon } from '../game/abilities';
@@ -12,6 +12,7 @@ const PU_ICON: Record<PowerupType, LucideIcon> = {
   shield: Shield,
   power: Flame,
   magnet: Magnet,
+  repair: HeartPulse,
 };
 
 const PU_COLOR = POWERUPS.reduce((acc, p) => ((acc[p.id] = p.color), acc), {} as Record<PowerupType, string>);

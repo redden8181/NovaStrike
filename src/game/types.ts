@@ -1,13 +1,18 @@
 // ── Shared game types ────────────────────────────────────────────────────────
 
-export type PowerupType = 'rapid' | 'double' | 'triple' | 'shield' | 'power' | 'magnet';
-export type UpgradeId = 'power' | 'rate' | 'streams' | 'hull' | 'shield' | 'magnet';
+export type PowerupType = 'rapid' | 'double' | 'triple' | 'shield' | 'power' | 'magnet' | 'repair';
+/** 'tech' — слот уникальной техники корабля (у каждого корпуса своя) */
+export type UpgradeId = 'power' | 'rate' | 'streams' | 'hull' | 'shield' | 'magnet' | 'tech';
 export type ShipId = 'falcon' | 'comet' | 'titan' | 'nova' | 'voidx';
+export type TechId = 'missiles' | 'lightning' | 'bombs' | 'drones' | 'singularity';
 export type EnemyKind = 'scout' | 'weaver' | 'gunner' | 'diver' | 'tank';
 export type GameMode = 'classic' | 'endless' | 'bossrush' | 'hardcore' | 'daily';
 export type SynergyId = 'barrage' | 'overheat' | 'reflector' | 'coinstorm' | 'novaburst';
 export type AbilityId = 'dash' | 'afterburner' | 'fortress' | 'novabeam' | 'collapse';
 export type BossId = 'reaver' | 'leviathan' | 'devourer' | 'carrier';
+export type RankId = 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'master' | 'legend' | 'void';
+
+export type ShipUpgrades = Record<UpgradeId, number>;
 
 export interface Stats {
   kills: number;
@@ -33,14 +38,16 @@ export interface SaveData {
   best: number;
   coins: number;
   muted: boolean;
-  upgrades: Record<UpgradeId, number>;
-  /** unlocked milestone scores (launch points + long-term unlocks) */
+  /** прокачка отдельно для каждого корабля */
+  shipUpgrades: Record<ShipId, ShipUpgrades>;
+  /** достигнутые пороги счёта (точки старта + долгие разблокировки) */
   checkpoints: number[];
   ship: ShipId;
   shipsOwned: ShipId[];
   achievements: string[];
+  /** id трека наград → количество полученных ступеней */
+  tracks: Record<string, number>;
   stats: Stats;
-  /** unlock ids granted by milestones: 'endless' | 'bossrush' | 'hardcore' | 'ship:voidx' */
   unlocks: string[];
   bestByMode: Partial<Record<GameMode, number>>;
   daily: DailyRecord;

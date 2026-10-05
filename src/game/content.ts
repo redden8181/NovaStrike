@@ -1,32 +1,195 @@
-import type { AbilityId, EnemyKind, PowerupType, ShipId, UpgradeId } from './types';
+import type { AbilityId, EnemyKind, PowerupType, RankId, SaveData, ShipId, ShipUpgrades, TechId, UpgradeId } from './types';
 
-// ── Вехи (долгосрочная прогрессия) ───────────────────────────────────────────
-// kind 'checkpoint' → точка старта для классических забегов
-// kind 'unlock'     → навсегда открывает режим или корабль
+// ── Ранги наград ─────────────────────────────────────────────────────────────
+export interface RankDef {
+  id: RankId;
+  name: string;
+  color: string;
+}
+
+export const RANKS: RankDef[] = [
+  { id: 'bronze', name: 'БРОНЗА', color: '#c2703a' },
+  { id: 'silver', name: 'СЕРЕБРО', color: '#cbd5e1' },
+  { id: 'gold', name: 'ЗОЛОТО', color: '#fbbf24' },
+  { id: 'platinum', name: 'ПЛАТИНА', color: '#5eead4' },
+  { id: 'diamond', name: 'АЛМАЗ', color: '#38bdf8' },
+  { id: 'master', name: 'МАСТЕР', color: '#a78bfa' },
+  { id: 'legend', name: 'ЛЕГЕНДА', color: '#f472b6' },
+  { id: 'void', name: 'БЕЗДНА', color: '#818cf8' },
+];
+
+export const rankAt = (i: number): RankDef => RANKS[Math.max(0, Math.min(RANKS.length - 1, i))];
+
+// ── Трек очков: одна ячейка, которая растёт по рангам до 500 000 ─────────────
 export interface MilestoneDef {
   score: number;
-  kind: 'checkpoint' | 'unlock';
+  rank: RankId;
   name: string;
   detail: string;
   unlock?: string;
+  coins: number;
+  /** можно ли стартовать забег с этой отметки */
+  checkpoint: boolean;
   color: string;
 }
 
 export const MILESTONES: MilestoneDef[] = [
-  { score: 1000, kind: 'checkpoint', name: 'ЧЕКПОИНТ 1000', detail: 'Открыта точка старта', color: '#4ade80' },
-  { score: 5000, kind: 'checkpoint', name: 'ЧЕКПОИНТ 5000', detail: 'Открыта точка старта', color: '#4ade80' },
-  { score: 15000, kind: 'checkpoint', name: 'ЧЕКПОИНТ 15000', detail: 'Открыта точка старта', color: '#4ade80' },
-  { score: 30000, kind: 'checkpoint', name: 'ЧЕКПОИНТ 30000', detail: 'Открыта точка старта', color: '#4ade80' },
-  { score: 50000, kind: 'unlock', name: 'РЕЖИМ «БЕСКОНЕЧНЫЙ»', detail: 'Чистая погоня за счётом', unlock: 'endless', color: '#a78bfa' },
-  { score: 100000, kind: 'unlock', name: 'БОСС-РУШ', detail: 'Открыт марафон линейных кораблей', unlock: 'bossrush', color: '#f472b6' },
-  { score: 250000, kind: 'unlock', name: 'РЕЖИМ «ХАРДКОР»', detail: 'Одна жизнь, двойной счёт', unlock: 'hardcore', color: '#ef4444' },
-  { score: 500000, kind: 'unlock', name: 'VOID-X', detail: 'Секретный прототип корпуса', unlock: 'ship:voidx', color: '#818cf8' },
+  { score: 1000, rank: 'bronze', name: 'БРОНЗА', detail: 'Точка старта 1 000', coins: 150, checkpoint: true, color: '#c2703a' },
+  { score: 5000, rank: 'silver', name: 'СЕРЕБРО', detail: 'Точка старта 5 000', coins: 350, checkpoint: true, color: '#cbd5e1' },
+  { score: 15000, rank: 'gold', name: 'ЗОЛОТО', detail: 'Точка старта 15 000', coins: 700, checkpoint: true, color: '#fbbf24' },
+  { score: 30000, rank: 'platinum', name: 'ПЛАТИНА', detail: 'Точка старта 30 000', coins: 1400, checkpoint: true, color: '#5eead4' },
+  {
+    score: 60000,
+    rank: 'diamond',
+    name: 'АЛМАЗ',
+    detail: 'Открыт режим «Бесконечный»',
+    unlock: 'endless',
+    coins: 2500,
+    checkpoint: true,
+    color: '#38bdf8',
+  },
+  {
+    score: 120000,
+    rank: 'master',
+    name: 'МАСТЕР',
+    detail: 'Открыт «Босс-руш»',
+    unlock: 'bossrush',
+    coins: 4000,
+    checkpoint: true,
+    color: '#a78bfa',
+  },
+  {
+    score: 250000,
+    rank: 'legend',
+    name: 'ЛЕГЕНДА',
+    detail: 'Открыт «Хардкор»',
+    unlock: 'hardcore',
+    coins: 7000,
+    checkpoint: false,
+    color: '#f472b6',
+  },
+  {
+    score: 500000,
+    rank: 'void',
+    name: 'БЕЗДНА',
+    detail: 'Открыт корабль VOID-X',
+    unlock: 'ship:voidx',
+    coins: 15000,
+    checkpoint: false,
+    color: '#818cf8',
+  },
 ];
 
-/** Счёт, с которого можно стартовать в классике. */
-export const CHECKPOINTS = MILESTONES.filter((m) => m.kind === 'checkpoint').map((m) => m.score);
+export const CHECKPOINTS = MILESTONES.filter((m) => m.checkpoint).map((m) => m.score);
 
-// ── Постоянные улучшения ─────────────────────────────────────────────────────
+// ── Треки наград — каждая ячейка растёт по рангам ────────────────────────────
+export type TrackMetric = 'score' | 'kills' | 'coins' | 'bosses' | 'time' | 'runs' | 'synergy';
+
+export interface TrackDef {
+  id: string;
+  name: string;
+  sub: string;
+  metric: TrackMetric;
+  format: 'num' | 'time';
+  /** пороги по возрастанию, по одному на ранг */
+  steps: number[];
+  /** награда монетами за каждую ступень */
+  coins: number[];
+}
+
+export const TRACKS: TrackDef[] = [
+  {
+    id: 'score',
+    name: 'РЕКОРД ОЧКОВ',
+    sub: 'Лучший забег',
+    metric: 'score',
+    format: 'num',
+    steps: MILESTONES.map((m) => m.score),
+    coins: MILESTONES.map((m) => m.coins),
+  },
+  {
+    id: 'kills',
+    name: 'УНИЧТОЖЕНО',
+    sub: 'Всего врагов за карьеру',
+    metric: 'kills',
+    format: 'num',
+    steps: [100, 500, 1500, 4000, 10000, 25000, 60000, 150000],
+    coins: [150, 300, 600, 1200, 2200, 4000, 7000, 14000],
+  },
+  {
+    id: 'coins',
+    name: 'ДОБЫЧА',
+    sub: 'Всего собрано монет',
+    metric: 'coins',
+    format: 'num',
+    steps: [500, 2000, 6000, 15000, 40000, 100000, 250000, 600000],
+    coins: [150, 300, 600, 1200, 2200, 4000, 7000, 14000],
+  },
+  {
+    id: 'bosses',
+    name: 'ОХОТНИК НА ЛИНКОРЫ',
+    sub: 'Сбито линейных кораблей',
+    metric: 'bosses',
+    format: 'num',
+    steps: [1, 5, 15, 40, 90, 180, 350, 700],
+    coins: [250, 500, 900, 1800, 3000, 5000, 9000, 18000],
+  },
+  {
+    id: 'time',
+    name: 'ВЫЖИВАНИЕ',
+    sub: 'Лучшее время в одном забеге',
+    metric: 'time',
+    format: 'time',
+    steps: [60, 150, 300, 600, 900, 1500, 2400, 3600],
+    coins: [150, 300, 600, 1200, 2200, 4000, 7000, 14000],
+  },
+  {
+    id: 'runs',
+    name: 'НАЛЁТ',
+    sub: 'Всего вылетов',
+    metric: 'runs',
+    format: 'num',
+    steps: [5, 20, 50, 120, 300, 700, 1500, 3000],
+    coins: [100, 250, 500, 1000, 1800, 3200, 6000, 12000],
+  },
+  {
+    id: 'synergy',
+    name: 'СИНЕРГЕТИК',
+    sub: 'Срабатываний синергий',
+    metric: 'synergy',
+    format: 'num',
+    steps: [1, 10, 30, 80, 200, 450, 1000, 2500],
+    coins: [200, 350, 700, 1300, 2400, 4200, 7500, 15000],
+  },
+];
+
+export function trackValue(def: TrackDef, save: SaveData): number {
+  switch (def.metric) {
+    case 'score':
+      return save.best;
+    case 'kills':
+      return save.stats.kills;
+    case 'coins':
+      return save.stats.totalCoins;
+    case 'bosses':
+      return save.stats.bossKills;
+    case 'time':
+      return save.stats.bestTime;
+    case 'runs':
+      return save.stats.runs;
+    case 'synergy':
+      return save.stats.synergiesTriggered;
+  }
+}
+
+/** Сколько ступеней трека фактически достигнуто сейчас. */
+export function trackReached(def: TrackDef, value: number): number {
+  let n = 0;
+  for (const s of def.steps) if (value >= s) n++;
+  return n;
+}
+
+// ── Постоянные улучшения (отдельные для каждого корабля) ─────────────────────
 export interface UpgradeDef {
   id: UpgradeId;
   name: string;
@@ -37,12 +200,13 @@ export interface UpgradeDef {
 }
 
 export const UPGRADES: UpgradeDef[] = [
-  { id: 'power', name: 'МОЩЬ ОРУДИЯ', sub: 'Урон снарядов', max: 5, base: 60, growth: 2.1 },
-  { id: 'rate', name: 'ТЕМП ОГНЯ', sub: 'Выстрелов в секунду', max: 5, base: 60, growth: 2.15 },
-  { id: 'streams', name: 'МУЛЬТИЗАЛП', sub: 'Параллельных снарядов', max: 2, base: 240, growth: 3.4 },
-  { id: 'hull', name: 'БРОНЯ КОРПУСА', sub: '+1 к прочности', max: 5, base: 80, growth: 2.05 },
-  { id: 'shield', name: 'ЭМИТТЕР ЩИТА', sub: 'Длительность щита', max: 4, base: 70, growth: 2.0 },
+  { id: 'power', name: 'МОЩЬ ОРУДИЯ', sub: 'Урон снарядов', max: 6, base: 60, growth: 2.0 },
+  { id: 'rate', name: 'ТЕМП ОГНЯ', sub: 'Выстрелов в секунду', max: 6, base: 60, growth: 2.05 },
+  { id: 'streams', name: 'МУЛЬТИЗАЛП', sub: 'Параллельных снарядов', max: 3, base: 220, growth: 2.8 },
+  { id: 'hull', name: 'БРОНЯ КОРПУСА', sub: '+1 к прочности', max: 6, base: 80, growth: 2.0 },
+  { id: 'shield', name: 'ЭМИТТЕР ЩИТА', sub: 'Длительность щита', max: 5, base: 70, growth: 1.95 },
   { id: 'magnet', name: 'ТЯГОВОЕ ПОЛЕ', sub: 'Радиус сбора монет', max: 5, base: 50, growth: 1.9 },
+  { id: 'tech', name: 'ТЕХНИКА', sub: 'Уникальная система корпуса', max: 5, base: 140, growth: 2.2 },
 ];
 
 export const UPGRADE_MAP: Record<UpgradeId, UpgradeDef> = UPGRADES.reduce(
@@ -50,11 +214,68 @@ export const UPGRADE_MAP: Record<UpgradeId, UpgradeDef> = UPGRADES.reduce(
   {} as Record<UpgradeId, UpgradeDef>,
 );
 
+export function emptyUpgrades(): ShipUpgrades {
+  return { power: 0, rate: 0, streams: 0, hull: 0, shield: 0, magnet: 0, tech: 0 };
+}
+
 export function upgradeCost(id: UpgradeId, level: number): number {
   const def = UPGRADE_MAP[id];
   if (level >= def.max) return Infinity;
   return Math.round((def.base * Math.pow(def.growth, level)) / 5) * 5;
 }
+
+/** Прокачка конкретного корпуса (у каждого своя). */
+export function shipUpgradesOf(save: SaveData, ship: ShipId): ShipUpgrades {
+  return { ...emptyUpgrades(), ...(save.shipUpgrades?.[ship] ?? {}) };
+}
+
+// ── Уникальные техники кораблей ──────────────────────────────────────────────
+export interface TechDef {
+  id: TechId;
+  name: string;
+  desc: string;
+  color: string;
+  /** базовый интервал срабатывания, сек (ускоряется с уровнем) */
+  interval: number;
+}
+
+export const TECHS: Record<TechId, TechDef> = {
+  missiles: {
+    id: 'missiles',
+    name: 'САМОНАВОДЯЩИЕСЯ РАКЕТЫ',
+    desc: 'Залпы ракет сами находят ближайшую цель.',
+    color: '#67e8f9',
+    interval: 2.4,
+  },
+  lightning: {
+    id: 'lightning',
+    name: 'ЭМИ-МОЛНИЯ',
+    desc: 'Разряд выжигает летящие в корабль снаряды и бьёт по врагам.',
+    color: '#a78bfa',
+    interval: 1.9,
+  },
+  bombs: {
+    id: 'bombs',
+    name: 'ОСКОЛОЧНЫЕ БОМБЫ',
+    desc: 'Тяжёлая бомба детонирует и разлетается осколками.',
+    color: '#34d399',
+    interval: 3.2,
+  },
+  drones: {
+    id: 'drones',
+    name: 'БОЕВЫЕ ДРОНЫ',
+    desc: 'Орбитальные дроны ведут собственный огонь.',
+    color: '#f472b6',
+    interval: 0.8,
+  },
+  singularity: {
+    id: 'singularity',
+    name: 'СИНГУЛЯРНОСТЬ',
+    desc: 'Микро-воронка втягивает снаряды, добычу и рвёт врагов.',
+    color: '#818cf8',
+    interval: 6,
+  },
+};
 
 // ── Корабли ──────────────────────────────────────────────────────────────────
 export interface ShipMods {
@@ -75,6 +296,7 @@ export interface ShipDef {
   requiresUnlock?: string;
   mods: ShipMods;
   ability: AbilityId;
+  tech: TechId;
   accent: string;
   voidDrive?: boolean;
 }
@@ -84,44 +306,48 @@ export const SHIPS: ShipDef[] = [
     id: 'falcon',
     name: 'FALCON-7',
     tag: 'БАЛАНС',
-    desc: 'Надёжный перехватчик. Без слабостей и без сюрпризов.',
+    desc: 'Надёжный перехватчик. Ровные характеристики и ракетный модуль.',
     cost: 0,
     requires: 0,
     mods: { speed: 1, rate: 1, damage: 1, hull: 0, streams: 0 },
     ability: 'dash',
+    tech: 'missiles',
     accent: '#22d3ee',
   },
   {
     id: 'comet',
     name: 'COMET',
     tag: 'СКОРОСТЬ',
-    desc: 'Лёгкая рама. Обгонит бурю, но чувствует каждый удар.',
+    desc: 'Молниеносный и хрупкий. Шквал мелких пуль и ЭМИ-защита.',
     cost: 1500,
     requires: 0,
-    mods: { speed: 1.3, rate: 1.15, damage: 0.95, hull: -1, streams: 0 },
+    mods: { speed: 1.7, rate: 1.45, damage: 0.62, hull: -1, streams: 0 },
     ability: 'afterburner',
+    tech: 'lightning',
     accent: '#a78bfa',
   },
   {
     id: 'titan',
     name: 'TITAN-IX',
     tag: 'ТЯЖЕЛОВЕС',
-    desc: 'Осадный фрегат. Медлителен, бронирован, бьёт как падающая луна.',
+    desc: 'Ходячая крепость: +4 корпуса, но разворачивается как баржа.',
     cost: 4000,
     requires: 5000,
-    mods: { speed: 0.8, rate: 0.95, damage: 1.3, hull: 3, streams: 0 },
+    mods: { speed: 0.58, rate: 0.78, damage: 1.85, hull: 4, streams: 0 },
     ability: 'fortress',
+    tech: 'bombs',
     accent: '#34d399',
   },
   {
     id: 'nova',
     name: 'NOVA-X',
     tag: 'АРТИЛЛЕРИЯ',
-    desc: 'Лучевая пушка-прототип. Тройной ствол, чудовищная мощь.',
+    desc: 'Чудовищный урон и лишний ствол ценой темпа огня.',
     cost: 9000,
     requires: 15000,
-    mods: { speed: 0.95, rate: 0.85, damage: 1.65, hull: 0, streams: 1 },
+    mods: { speed: 0.92, rate: 0.62, damage: 2.45, hull: 0, streams: 1 },
     ability: 'novabeam',
+    tech: 'drones',
     accent: '#f472b6',
   },
   {
@@ -132,8 +358,9 @@ export const SHIPS: ShipDef[] = [
     cost: 0,
     requires: 500000,
     requiresUnlock: 'ship:voidx',
-    mods: { speed: 1.12, rate: 1.05, damage: 1.15, hull: -1, streams: 1 },
+    mods: { speed: 1.25, rate: 1.12, damage: 1.3, hull: -1, streams: 1 },
     ability: 'collapse',
+    tech: 'singularity',
     accent: '#818cf8',
     voidDrive: true,
   },
@@ -144,7 +371,6 @@ export const SHIP_MAP: Record<ShipId, ShipDef> = SHIPS.reduce(
   {} as Record<ShipId, ShipDef>,
 );
 
-/** Уровни двигателя Бездны: убийства без попаданий → бонус урона. */
 export const VOID_DRIVE_TIERS: { kills: number; bonus: number }[] = [
   { kills: 10, bonus: 0.05 },
   { kills: 25, bonus: 0.1 },
@@ -165,6 +391,8 @@ export interface PowerupDef {
   duration: number;
   weight: number;
   minScore: number;
+  /** мгновенный эффект без таймера */
+  instant?: boolean;
 }
 
 export const POWERUPS: PowerupDef[] = [
@@ -173,7 +401,8 @@ export const POWERUPS: PowerupDef[] = [
   { id: 'triple', name: 'ТРОЙНОЙ ВЫСТРЕЛ', color: '#38bdf8', duration: 10, weight: 2.4, minScore: 700 },
   { id: 'magnet', name: 'МАГНИТ', color: '#c084fc', duration: 12, weight: 2.2, minScore: 300 },
   { id: 'power', name: 'ПЕРЕГРУЗКА', color: '#f472b6', duration: 10, weight: 2, minScore: 500 },
-  { id: 'shield', name: 'ЩИТ', color: '#22d3ee', duration: 7, weight: 2.2, minScore: 150 },
+  { id: 'shield', name: 'ЩИТ', color: '#22d3ee', duration: 7, weight: 2.4, minScore: 150 },
+  { id: 'repair', name: 'РЕМОНТ КОРПУСА', color: '#4ade80', duration: 0, weight: 2.6, minScore: 0, instant: true },
 ];
 
 export const POWERUP_MAP: Record<PowerupType, PowerupDef> = POWERUPS.reduce(

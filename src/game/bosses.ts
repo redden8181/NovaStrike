@@ -143,7 +143,15 @@ export interface BossHooks {
   onPhase: (phase: number) => void;
 }
 
-export function createBoss(id: BossId, tier: number, hpScale: number, w: number, h: number, u: number): BossEntity {
+export function createBoss(
+  id: BossId,
+  tier: number,
+  hpScale: number,
+  w: number,
+  h: number,
+  u: number,
+  rnd: () => number = Math.random,
+): BossEntity {
   const def = BOSSES[id];
   const loop = Math.floor((tier - 1) / BOSS_ORDER.length);
   const hp = def.hp * (1 + 0.42 * (tier - 1)) * hpScale;
@@ -168,7 +176,7 @@ export function createBoss(id: BossId, tier: number, hpScale: number, w: number,
       hp: t.hp * (1 + 0.3 * (tier - 1)) * hpScale,
       max: t.hp * (1 + 0.3 * (tier - 1)) * hpScale,
       alive: true,
-      cool: 1 + Math.random() * 1.2,
+      cool: 1 + rnd() * 1.2,
       burst: 0,
       burstT: 0,
     })),
