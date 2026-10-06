@@ -15,7 +15,7 @@ import type {
 import { ABILITIES, fuseAbilities, type AbilityDef } from './abilities';
 
 /** Версия сборки — показывается в меню. */
-export const BUILD_VERSION = '1.8.2';
+export const BUILD_VERSION = '2.0.0';
 
 // ── Ранги наград ─────────────────────────────────────────────────────────────
 export interface RankDef {
@@ -606,6 +606,15 @@ export function abilityOf(def: ShipDef): AbilityDef {
   return def.fusedAbility ?? ABILITIES[def.ability];
 }
 
+/** Полностью прокачанный набор улучшений корпуса — эталон для ежедневного. */
+export function maxUpgradesFor(def: ShipDef, star: number): ShipUpgrades {
+  const out = emptyUpgrades();
+  for (const u of UPGRADES) {
+    out[u.id] = u.group === 'turret' ? u.max : capOf(def, u.id, star);
+  }
+  return out;
+}
+
 export const VOID_DRIVE_TIERS: { kills: number; bonus: number }[] = [
   { kills: 10, bonus: 0.05 },
   { kills: 25, bonus: 0.1 },
@@ -698,6 +707,29 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '2.0.0',
+    title: 'ПОЗДНЯЯ ИГРА',
+    items: [
+      'Урон врагов растёт вместе с уровнем угрозы — до ×6.5 на предельных этапах',
+      'Потолок уровня поднят с 20 до 60: сложность больше не упирается в плато',
+      'Элитные противники с золотым кольцом: втрое крепче, быстрее и дороже',
+      'На поздних уровнях мелочь вытесняется стрелками, камикадзе и танками',
+      'До 38 врагов и 160 снарядов на экране, волны по 5 целей',
+      'Линкоры масштабируются вместе с врагами и приходят чаще',
+    ],
+  },
+  {
+    version: '1.9.0',
+    title: 'СОБЫТИЯ НЕДЕЛИ',
+    items: [
+      'Все режимы открыты сразу — пробуй любой',
+      'Ежедневное событие закреплено за днём недели: семь разных испытаний в ротации',
+      'На событие выдаётся эталонный гибрид с максимальной прокачкой — одинаковый для всех',
+      'Одна попытка в сутки: результат фиксируется с первого захода',
+      'Добыча за ежедневный вылет ограничена 2 000 монет',
+    ],
+  },
   {
     version: '1.8.0',
     title: 'СИЛЬНЫЕ ГИБРИДЫ',

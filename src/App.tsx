@@ -20,6 +20,7 @@ import {
 } from './game/content';
 import { Info } from './ui/Info';
 import { isModeUnlocked, MODE_MAP } from './game/modes';
+import { DAILY_ATTEMPTS, todayKey } from './game/dailyRun';
 import { Hud } from './ui/Hud';
 import { Menu } from './ui/Menu';
 import { Modes } from './ui/Modes';
@@ -75,6 +76,15 @@ export default function App() {
 
   const play = useCallback((mode: GameMode, cp: number) => {
     sfx.unlock();
+    // ежедневное событие ограничено тремя попытками в сутки
+    if (mode === 'daily') {
+      const d = saveRef.current.daily;
+      const used = d.date === todayKey() ? d.runs : 0;
+      if (used >= DAILY_ATTEMPTS) {
+        sfx.play('ui');
+        return;
+      }
+    }
     sfx.play('ui');
     const target = isModeUnlocked(saveRef.current, mode) ? mode : 'classic';
     setLastMode(target);

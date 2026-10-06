@@ -9,8 +9,11 @@ import {
   POWERUP_MAP,
   TECHS,
   TRACKS,
+  MAX_STAR,
   VOID_DRIVE_TIERS,
   abilityOf,
+  buildFusion,
+  maxUpgradesFor,
   resolveShip,
   shipUpgradesOf,
   starOf,
@@ -37,7 +40,7 @@ import { sfx } from './audio';
 import { ABILITIES, AbilityRuntime, type AbilityDef, type AbilityEvents } from './abilities';
 import { SYNERGY_MAP, SynergyTracker } from './synergies';
 import { MODE_MAP, type ModeDef } from './modes';
-import { buildDaily, makeRng, todayKey, type DailyConfig } from './dailyRun';
+import { DAILY_COIN_CAP, buildDaily, makeRng, todayKey, type DailyConfig } from './dailyRun';
 import { Background } from './background';
 import {
   bossForTier,
@@ -120,6 +123,8 @@ interface Enemy {
   stateT: number;
   aimX: number;
   aimY: number;
+  /** элитный противник поздней игры */
+  elite: boolean;
 }
 interface CoinEnt {
   x: number;
@@ -203,6 +208,9 @@ export class GameEngine {
   private startCp = 0;
   private scoreMul = 1;
   private coinMul = 1;
+  /** потолок монет за один забег (0 — без ограничения) */
+  private coinCap = 0;
+  private capNotified = false;
 
   // ── run state ──────────────────────────────────────────────────────────────
   private score = 0;
@@ -311,6 +319,10 @@ export class GameEngine {
     bullet: 1,
     aggro: 1,
     burst: 1,
+    /** множитель урона вражеских атак */
+    dmgMul: 1,
+    /** вероятность элитного противника */
+    elite: 0,
     maxEnemies: 7,
     maxBullets: 22,
   };
@@ -483,10 +495,13 @@ export class GameEngine {
     this.daily = this.modeDef.seeded ? buildDaily(todayKey()) : null;
     this.rng = this.daily ? makeRng(this.daily.seed) : Math.random;
 
-    this.shipId = save.ship;
-    const ship = resolveShip(save, save.ship);
-    // ранг корпуса усиливает все характеристики
-    const sm = starRank(starOf(save, save.ship)).statMul;
+    // В ежедневном событии все летают на одном максимальном гибриде —
+    // так рейтинг честный, а игрок видит, до чего можно прокачаться.
+    const loaner = this.daily ? buildFusion(this.daily.ship[0], this.daily.ship[1]) : null;
+    this.shipId = loaner ? loaner.id : save.ship;
+    const ship = loaner ?? resolveShip(save, save.ship);
+    // ранг корпуса усиливает все характеристики (у эталона — максимальный)
+    const sm = loaner ? starRank(MAX_STAR).statMul : starRank(starOf(save, save.ship)).statMul;
     const base = ship.mods;
     const mods = {
       speed: base.speed * sm,
@@ -496,8 +511,8 @@ export class GameEngine {
       armor: Math.round(base.armor * sm),
       streams: base.streams,
     };
-    // прокачка берётся у конкретного корпуса — у каждого своя
-    const up = shipUpgradesOf(save, save.ship);
+    // прокачка берётся у конкретного корпуса; эталон выдаётся с максимумом
+    const up = loaner ? maxUpgradesFor(loaner, MAX_STAR) : shipUpgradesOf(save, save.ship);
     this.techLevel = up.tech;
     this.techId = ship.tech;
     this.techT = 1.4;
@@ -534,6 +549,8 @@ export class GameEngine {
     this.followSpeed = 13 * mods.speed;
     this.scoreMul = this.modeDef.scoreMul * (this.daily?.scoreMul ?? 1);
     this.coinMul = this.modeDef.coinMul * (this.daily?.coinMul ?? 1);
+    this.coinCap = this.daily ? DAILY_COIN_CAP : 0;
+    this.capNotified = false;
 
     this.ability.reset(abilityOf(ship));
     this.synergy.reset();
@@ -605,7 +622,8 @@ export class GameEngine {
 
     // opening banner per mode
     if (this.gameMode === 'daily' && this.daily) {
-      this.pushBanner('ЕЖЕДНЕВНОЕ ИСПЫТАНИЕ', this.daily.mutators.map((m) => m.name).join(' + '), '#fbbf24', 2.4);
+      this.pushBanner(this.daily.event.name, this.daily.event.tagline.toUpperCase(), this.daily.event.color, 2.4);
+      this.pushBanner('ЭТАЛОННЫЙ КОРПУС', `${ship.name} · МАКСИМАЛЬНАЯ ПРОКАЧКА`, '#67e8f9', 2.0);
     } else if (this.gameMode === 'hardcore') {
       this.pushBanner('ХАРДКОР', 'ОДНО ПОПАДАНИЕ — ДВОЙНОЙ СЧЁТ', '#ef4444', 2.4);
     } else if (this.gameMode === 'bossrush') {
@@ -746,12 +764,16 @@ export class GameEngine {
   // ── difficulty ─────────────────────────────────────────────────────────────
   private bossInterval(): number {
     const base = this.modeDef.bossInterval || 8000;
-    return Math.max(2500, base * (this.daily?.bossInterval ?? 1));
+    // на высоких уровнях линкоры приходят заметно чаще
+    const squeeze = clamp(1 - (this.d.level - 12) * 0.03, 0.45, 1);
+    return Math.max(2200, base * squeeze * (this.daily?.bossInterval ?? 1));
   }
 
   /**
    * Единая кривая сложности. `c` — абстрактный «уровень давления»:
    * растёт от счёта и времени, модификаторы режима/дня применяются один раз.
+   * Потолки параметров подняты так, чтобы поздняя игра продолжала расти
+   * вместе с прокачанным кораблём, а не упиралась в плато.
    */
   private updateDiff() {
     const mul = this.modeDef.difficultyMul;
@@ -762,19 +784,24 @@ export class GameEngine {
     const c = Math.max(0, (base + late) * mul - this.diffOffset);
     const d = this.d;
     d.c = c;
-    d.level = clamp(1 + Math.floor(c), 1, 20);
+    d.level = clamp(1 + Math.floor(c), 1, 60);
+    const L = d.level;
 
-    d.speed = (1 + Math.min(1.5, c * 0.14)) * (this.daily?.enemySpeed ?? 1);
-    d.hp = (1 + c * 0.34) * (this.daily?.enemyHp ?? 1);
-    d.interval = Math.max(0.34, 1.05 - Math.min(c, 12) * 0.058) / (this.daily?.spawnRate ?? 1);
-    d.bullet = 1 + Math.min(0.75, c * 0.06);
-    d.aggro = Math.min(1.35, 0.3 + c * 0.1);
-    d.burst = c > 9 ? 3 : c > 4 ? 2 : 1;
+    d.speed = (1 + Math.min(2.3, c * 0.14)) * (this.daily?.enemySpeed ?? 1);
+    d.hp = (1 + c * 0.38) * (this.daily?.enemyHp ?? 1);
+    d.interval = Math.max(0.16, 1.05 - Math.min(c, 26) * 0.034) / (this.daily?.spawnRate ?? 1);
+    d.bullet = 1 + Math.min(1.7, c * 0.06);
+    d.aggro = Math.min(2.8, 0.3 + c * 0.1);
+    // ── ключевое: урон врагов растёт вместе с прочностью корабля ──
+    d.dmgMul = 1 + Math.min(5.5, c * 0.075);
+    // доля элитных противников в поздней игре
+    d.elite = clamp((L - 14) * 0.035, 0, 0.5);
+    d.burst = c > 22 ? 5 : c > 15 ? 4 : c > 9 ? 3 : c > 4 ? 2 : 1;
 
-    // ── потолки экрана: растут только с уровнем, поле никогда не «заливает» ──
+    // ── потолки экрана: растут с уровнем, но остаются читаемыми ──
     const dens = this.daily?.spawnRate ?? 1;
-    d.maxEnemies = Math.round(Math.min(26, 6 + d.level * 1.1) * dens);
-    d.maxBullets = Math.round(Math.min(96, 14 + d.level * 4.4) * dens);
+    d.maxEnemies = Math.round(Math.min(38, 6 + L * 1.1) * dens);
+    d.maxBullets = Math.round(Math.min(160, 14 + L * 4.4) * dens);
   }
 
   // ── main loop ──────────────────────────────────────────────────────────────
@@ -1560,9 +1587,9 @@ export class GameEngine {
       this.shake = Math.min(1, this.shake + 0.15);
       return;
     }
-    // броня корпуса + «Крепость»
+    // броня корпуса + «Крепость»; урон врага растёт с уровнем угрозы
     const reduction = Math.min(DAMAGE.armorCap, this.armor) / 100;
-    let dmg = raw * (1 - reduction) * am.damageTakenMul;
+    let dmg = raw * this.d.dmgMul * (1 - reduction) * am.damageTakenMul;
     dmg = Math.max(1, Math.round(dmg));
     this.hp -= dmg;
 
@@ -1759,11 +1786,13 @@ export class GameEngine {
   private pickKind(): EnemyKind {
     const s = this.score;
     const ramp = (a: number, b: number) => clamp((s - a) / (b - a), 0, 1);
-    const w0 = 10;
-    const w1 = 6 * ramp(250, 1200);
-    const w2 = 5 * ramp(700, 1800);
-    const w3 = 4.2 * ramp(2400, 4200);
-    const w4 = 3.2 * ramp(4200, 6500);
+    // в поздней игре мелочь вытесняется стрелками, камикадзе и танками
+    const heavy = clamp((this.d.level - 12) / 24, 0, 1);
+    const w0 = 10 * (1 - 0.72 * heavy);
+    const w1 = 6 * ramp(250, 1200) * (1 - 0.35 * heavy);
+    const w2 = 5 * ramp(700, 1800) * (1 + 1.1 * heavy);
+    const w3 = 4.2 * ramp(2400, 4200) * (1 + 1.2 * heavy);
+    const w4 = 3.2 * ramp(4200, 6500) * (1 + 1.4 * heavy);
     const total = w0 + w1 + w2 + w3 + w4;
     let roll = this.rng() * total;
     if ((roll -= w0) <= 0) return 'scout';
@@ -1778,19 +1807,23 @@ export class GameEngine {
     const def = ENEMIES[kind];
     const d = this.d;
     const ex = x ?? 28 + this.rng() * (this.w - 56);
+    // элита: крепче, быстрее, дороже — появляется только в поздней игре
+    const elite = this.rng() < d.elite;
+    const hp = def.hp * d.hp * (elite ? 2.4 : 1);
     this.enemies.push({
       kind,
       x: ex,
       y: y ?? -def.r * 2 - this.rng() * 40,
       vx: 0,
-      vy: def.speed * this.u * d.speed,
-      hp: def.hp * d.hp,
-      maxHp: def.hp * d.hp,
-      r: def.r * this.u,
-      score: def.score,
-      coinMin: def.coins[0],
-      coinMax: def.coins[1],
-      powerChance: def.powerChance,
+      vy: def.speed * this.u * d.speed * (elite ? 1.12 : 1),
+      hp,
+      maxHp: hp,
+      r: def.r * this.u * (elite ? 1.15 : 1),
+      score: Math.round(def.score * (elite ? 2.5 : 1)),
+      coinMin: elite ? def.coins[0] + 1 : def.coins[0],
+      coinMax: elite ? def.coins[1] + 2 : def.coins[1],
+      powerChance: def.powerChance * (elite ? 1.8 : 1),
+      elite,
       t: this.rng() * 10,
       phase: this.rng() * TAU,
       baseX: ex,
@@ -1949,7 +1982,7 @@ export class GameEngine {
     this.pendKills += 1;
     this.addScore(e.score);
     this.bumpVoidDrive();
-    const big = e.kind === 'tank';
+    const big = e.kind === 'tank' || e.elite;
     this.explode(e.x, e.y, big ? '#fbbf24' : '#fb7185', big ? 26 : 14, big ? 1.5 : 1);
     if (!silent) sfx.play(big ? 'bigboom' : 'boom');
     if (big) this.shake = Math.min(1, this.shake + 0.3);
@@ -1991,7 +2024,9 @@ export class GameEngine {
     this.bossTier += 1;
     const tier = this.modeDef.bossRush ? this.bossTier : Math.max(1, Math.floor(this.nextBoss / this.bossInterval()));
     const id = bossForTier(this.modeDef.bossRush ? this.bossTier : tier);
-    const hpScale = clamp(this.d.hp, 1, 2.4) * this.modeDef.difficultyMul * (this.modeDef.bossRush ? 1 + 0.12 * (this.bossTier - 1) : 1);
+    // линкоры масштабируются вместе с обычными врагами, иначе тают мгновенно
+    const hpScale =
+      clamp(this.d.hp * 0.75, 1, 22) * this.modeDef.difficultyMul * (this.modeDef.bossRush ? 1 + 0.12 * (this.bossTier - 1) : 1);
     this.boss = createBoss(id, tier, hpScale, this.w, this.h, this.u, this.rng);
     this.pushBanner(this.boss.name, this.boss.def.subtitle, this.boss.def.color, 2.6);
     sfx.play('warn');
@@ -2154,11 +2189,20 @@ export class GameEngine {
   }
 
   private collectCoin(x: number, y: number) {
-    const value = Math.max(1, Math.round(this.coinMul * this.synergy.effects().coinValueMul));
-    this.runCoins += value;
-    this.pendCoins += value;
-    this.addScore(5 * value);
-    this.burst(x, y, '#fbbf24', 5, 120);
+    const raw = Math.max(1, Math.round(this.coinMul * this.synergy.effects().coinValueMul));
+    // в ежедневном событии действует потолок добычи за вылет
+    const room = this.coinCap > 0 ? Math.max(0, this.coinCap - this.runCoins) : Infinity;
+    const value = Math.min(raw, room);
+    if (value > 0) {
+      this.runCoins += value;
+      this.pendCoins += value;
+    } else if (!this.capNotified) {
+      // предел достигнут — сообщаем один раз, монеты дальше идут только в счёт
+      this.capNotified = true;
+      this.pushBanner('ПРЕДЕЛ ДОБЫЧИ', `${this.coinCap} МОНЕТ ЗА ВЫЛЕТ — ДАЛЬШЕ ТОЛЬКО ОЧКИ`, '#fbbf24', 2.2);
+    }
+    this.addScore(5 * raw);
+    this.burst(x, y, value > 0 ? '#fbbf24' : '#94a3b8', 5, 120);
     sfx.play('coin');
   }
 
@@ -2293,9 +2337,17 @@ export class GameEngine {
     const lvl = this.d.level;
     if (lvl > this.level) {
       this.level = lvl;
-      if (lvl > this.levelBannered && lvl <= 10) {
+      // до 10 отмечаем каждый уровень, дальше — каждый пятый, чтобы не спамить
+      const notable = lvl <= 10 || lvl % 5 === 0;
+      if (lvl > this.levelBannered && notable) {
         this.levelBannered = lvl;
-        this.pushBanner(`УРОВЕНЬ УГРОЗЫ ${lvl}`, 'ПЛОТНОСТЬ ПРОТИВНИКА РАСТЁТ', '#fb923c', 1.5);
+        const critical = lvl >= 25;
+        this.pushBanner(
+          `УРОВЕНЬ УГРОЗЫ ${lvl}`,
+          critical ? 'ЭЛИТНЫЕ СИЛЫ · УРОН ВРАГОВ РАСТЁТ' : 'ПЛОТНОСТЬ ПРОТИВНИКА РАСТЁТ',
+          critical ? '#ef4444' : '#fb923c',
+          1.5,
+        );
       }
     }
     this.checkAchievements();
@@ -2587,10 +2639,24 @@ export class GameEngine {
                 ? 'rgba(239,68,68,0.45)'
                 : 'rgba(220,38,38,0.5)';
       drawGlow(ctx, glowColor, e.x, e.y, e.r * 1.9, 0.8);
+      if (e.elite) drawGlow(ctx, 'rgba(251,191,36,0.55)', e.x, e.y, e.r * 2.4, 0.9);
       ctx.save();
       ctx.translate(e.x, e.y);
       if (e.kind === 'diver' && e.state === 2) ctx.rotate(Math.atan2(e.vy, e.vx) - Math.PI / 2);
       drawEnemyKind(ctx, e.kind, e.r, e.t, e.flash);
+      // элита: вращающееся золотое кольцо
+      if (e.elite) {
+        ctx.save();
+        ctx.rotate(e.t * 1.6);
+        ctx.strokeStyle = 'rgba(253,224,71,0.9)';
+        ctx.lineWidth = 1.8;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.arc(0, 0, e.r * 1.35, 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
       if (e.maxHp > 10 && e.hp < e.maxHp) {
         const w = e.r * 1.7;
         ctx.fillStyle = 'rgba(0,0,0,0.5)';

@@ -1,10 +1,17 @@
 // ── Daily Run — deterministic, fully offline ────────────────────────────────
-// Every calendar day maps to a fixed seed, so all runs on the same date share
-// identical enemy formations, drops and boss order.
+// Событие закреплено за днём недели: по понедельникам одно, по вторникам другое.
+// Внутри дня сид фиксирован датой, поэтому забег воспроизводим для всех.
 
-import type { PowerupType } from './types';
+import type { BaseShipId, PowerupType } from './types';
 
 const MONTHS = ['ЯНВ', 'ФЕВ', 'МАР', 'АПР', 'МАЙ', 'ИЮН', 'ИЮЛ', 'АВГ', 'СЕН', 'ОКТ', 'НОЯ', 'ДЕК'];
+const WEEKDAYS = ['ВОСКРЕСЕНЬЕ', 'ПОНЕДЕЛЬНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВЕРГ', 'ПЯТНИЦА', 'СУББОТА'];
+
+/** Одна попытка в сутки — рейтинг честнее, фарм ретраями невозможен. */
+export const DAILY_ATTEMPTS = 1;
+
+/** Потолок добычи за ежедневный вылет: эталонный корабль не ломает экономику. */
+export const DAILY_COIN_CAP = 2000;
 
 /** Local calendar day as YYYY-MM-DD. */
 export function todayKey(d: Date = new Date()): string {
@@ -14,11 +21,21 @@ export function todayKey(d: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
-/** '2026-09-04' → '04 SEP 2026' */
+/** '2026-09-04' → '04 СЕН 2026' */
 export function formatDailyKey(key: string): string {
   const [y, m, d] = key.split('-');
   const mi = Math.max(0, Math.min(11, Number(m) - 1));
   return `${d} ${MONTHS[mi]} ${y}`;
+}
+
+/** День недели 0..6 (0 — воскресенье) по ключу даты. */
+export function weekdayOf(key: string): number {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+export function weekdayName(key: string): string {
+  return WEEKDAYS[weekdayOf(key)];
 }
 
 /** Deterministic 32-bit string hash (FNV-1a flavoured). */
@@ -59,23 +76,103 @@ export interface DailyMutator {
   startPowerup?: PowerupType;
 }
 
-export const DAILY_MUTATORS: DailyMutator[] = [
-  { id: 'swarm', name: 'РОЙ', desc: 'Больше врагов, тоньше броня', color: '#4ade80', spawnRate: 1.45, enemyHp: 0.7, scoreMul: 1.1 },
-  { id: 'armored', name: 'БРОНИРОВАННЫЕ', desc: 'Противники крепче, но медленнее', color: '#94a3b8', enemyHp: 1.55, enemySpeed: 0.85, scoreMul: 1.15 },
-  { id: 'goldrush', name: 'ЗОЛОТАЯ ЛИХОРАДКА', desc: 'Двойная добыча монет', color: '#fbbf24', coinMul: 2 },
-  { id: 'glass', name: 'СТЕКЛЯННЫЙ КОРПУС', desc: 'Одна прочность, двойной счёт', color: '#f472b6', oneHp: true, scoreMul: 2 },
-  { id: 'hotstart', name: 'ГОРЯЧИЙ СТАРТ', desc: 'Запуск с активным Скорострелом', color: '#ffd23f', startPowerup: 'rapid' },
-  { id: 'bosshunt', name: 'ОХОТА НА ЛИНКОРЫ', desc: 'Линейные корабли вдвое чаще', color: '#fb7185', bossInterval: 0.55, scoreMul: 1.2 },
-  { id: 'hailstorm', name: 'ГРАД ОГНЯ', desc: 'Вражеские снаряды быстрее', color: '#38bdf8', bulletSpeed: 1.3, scoreMul: 1.15 },
-  { id: 'blitz', name: 'БЛИЦ', desc: 'Всё движется быстрее', color: '#a78bfa', enemySpeed: 1.3, spawnRate: 1.15, scoreMul: 1.15 },
+export const DAILY_MUTATORS: Record<string, DailyMutator> = {
+  swarm: { id: 'swarm', name: 'РОЙ', desc: 'Больше врагов, тоньше броня', color: '#4ade80', spawnRate: 1.45, enemyHp: 0.7, scoreMul: 1.1 },
+  armored: { id: 'armored', name: 'БРОНИРОВАННЫЕ', desc: 'Противники крепче, но медленнее', color: '#94a3b8', enemyHp: 1.55, enemySpeed: 0.85, scoreMul: 1.15 },
+  goldrush: { id: 'goldrush', name: 'ЗОЛОТАЯ ЛИХОРАДКА', desc: 'Двойная добыча монет', color: '#fbbf24', coinMul: 2 },
+  glass: { id: 'glass', name: 'СТЕКЛЯННЫЙ КОРПУС', desc: 'Одна прочность, двойной счёт', color: '#f472b6', oneHp: true, scoreMul: 2 },
+  hotstart: { id: 'hotstart', name: 'ГОРЯЧИЙ СТАРТ', desc: 'Запуск с активным Скорострелом', color: '#ffd23f', startPowerup: 'rapid' },
+  bosshunt: { id: 'bosshunt', name: 'ОХОТА НА ЛИНКОРЫ', desc: 'Линейные корабли вдвое чаще', color: '#fb7185', bossInterval: 0.55, scoreMul: 1.2 },
+  hailstorm: { id: 'hailstorm', name: 'ГРАД ОГНЯ', desc: 'Вражеские снаряды быстрее', color: '#38bdf8', bulletSpeed: 1.3, scoreMul: 1.15 },
+  blitz: { id: 'blitz', name: 'БЛИЦ', desc: 'Всё движется быстрее', color: '#a78bfa', enemySpeed: 1.3, spawnRate: 1.15, scoreMul: 1.15 },
+  shielded: { id: 'shielded', name: 'ЭНЕРГОЩИТ', desc: 'Старт под защитным полем', color: '#22d3ee', startPowerup: 'shield' },
+  overdrive: { id: 'overdrive', name: 'ПЕРЕГРУЗКА', desc: 'Старт с удвоенным уроном', color: '#f472b6', startPowerup: 'power' },
+};
+
+/** Событие, закреплённое за днём недели. */
+export interface DailyEvent {
+  weekday: number;
+  name: string;
+  tagline: string;
+  color: string;
+  mutators: string[];
+  /** фиксированный гибрид: на нём летят все участники */
+  ship: [BaseShipId, BaseShipId];
+}
+
+export const DAILY_EVENTS: DailyEvent[] = [
+  {
+    weekday: 1,
+    name: 'ЖЕЛЕЗНЫЙ ПОНЕДЕЛЬНИК',
+    tagline: 'Толстая броня против плотных волн',
+    color: '#34d399',
+    mutators: ['armored', 'swarm'],
+    ship: ['titan', 'falcon'],
+  },
+  {
+    weekday: 2,
+    name: 'ВТОРНИК СКОРОСТИ',
+    tagline: 'Всё летит быстрее — реакция решает',
+    color: '#a78bfa',
+    mutators: ['blitz', 'hotstart'],
+    ship: ['comet', 'nova'],
+  },
+  {
+    weekday: 3,
+    name: 'СРЕДА ЛИНКОРОВ',
+    tagline: 'Капитальные корабли идут один за другим',
+    color: '#fb7185',
+    mutators: ['bosshunt', 'overdrive'],
+    ship: ['nova', 'titan'],
+  },
+  {
+    weekday: 4,
+    name: 'ЧЕТВЕРГ БЕЗДНЫ',
+    tagline: 'Шквал огня и никакой пощады',
+    color: '#818cf8',
+    mutators: ['hailstorm', 'shielded'],
+    ship: ['voidx', 'comet'],
+  },
+  {
+    weekday: 5,
+    name: 'ЗОЛОТАЯ ПЯТНИЦА',
+    tagline: 'Максимальная добыча за вылет',
+    color: '#fbbf24',
+    mutators: ['goldrush', 'swarm'],
+    ship: ['falcon', 'comet'],
+  },
+  {
+    weekday: 6,
+    name: 'СУББОТНЯЯ МЯСОРУБКА',
+    tagline: 'Рой врагов и усиленные орудия',
+    color: '#4ade80',
+    mutators: ['swarm', 'overdrive'],
+    ship: ['titan', 'nova'],
+  },
+  {
+    weekday: 0,
+    name: 'ВОСКРЕСНЫЙ ПРЕДЕЛ',
+    tagline: 'Одно попадание — конец. Двойной счёт',
+    color: '#ef4444',
+    mutators: ['glass', 'shielded'],
+    ship: ['voidx', 'nova'],
+  },
 ];
+
+export function eventForKey(key: string): DailyEvent {
+  const wd = weekdayOf(key);
+  return DAILY_EVENTS.find((e) => e.weekday === wd) ?? DAILY_EVENTS[0];
+}
 
 export interface DailyConfig {
   key: string;
   seed: number;
   label: string;
+  weekday: string;
+  event: DailyEvent;
   mutators: DailyMutator[];
-  /** combined modifiers */
+  /** фиксированный корабль события */
+  ship: [BaseShipId, BaseShipId];
   enemyHp: number;
   enemySpeed: number;
   spawnRate: number;
@@ -90,24 +187,23 @@ export interface DailyConfig {
 /** Builds today's (or any date's) deterministic configuration. */
 export function buildDaily(key: string = todayKey()): DailyConfig {
   const seed = hashSeed(`nova-strike::${key}`);
-  const rng = makeRng(seed);
-  const pool = [...DAILY_MUTATORS];
-  const picked: DailyMutator[] = [];
-  const count = 2;
-  for (let i = 0; i < count && pool.length; i++) {
-    const idx = Math.floor(rng() * pool.length) % pool.length;
-    picked.push(pool.splice(idx, 1)[0]);
-  }
+  const event = eventForKey(key);
+  const picked = event.mutators.map((id) => DAILY_MUTATORS[id]).filter(Boolean);
+
   const cfg: DailyConfig = {
     key,
     seed,
     label: formatDailyKey(key),
+    weekday: weekdayName(key),
+    event,
     mutators: picked,
+    ship: event.ship,
     enemyHp: 1,
     enemySpeed: 1,
     spawnRate: 1,
     bulletSpeed: 1,
-    coinMul: 1,
+    // ежедневное всегда щедрее обычного забега
+    coinMul: 2.5,
     scoreMul: 1.1,
     bossInterval: 1,
     oneHp: false,
@@ -125,4 +221,9 @@ export function buildDaily(key: string = todayKey()): DailyConfig {
     if (m.startPowerup) cfg.startPowerup = m.startPowerup;
   }
   return cfg;
+}
+
+/** Сколько попыток осталось сегодня. */
+export function attemptsLeft(runsToday: number): number {
+  return Math.max(0, DAILY_ATTEMPTS - runsToday);
 }

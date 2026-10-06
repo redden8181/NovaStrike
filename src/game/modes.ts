@@ -91,8 +91,8 @@ export const MODES: ModeDef[] = [
   {
     id: 'daily',
     name: 'ЕЖЕДНЕВНОЕ',
-    tag: 'ОБЩИЙ SEED',
-    desc: 'Один и тот же сид для всех в течение дня. Два случайных мутатора.',
+    tag: '3 ПОПЫТКИ',
+    desc: 'Своё событие на каждый день недели. Общий корабль и сид для всех, тройная добыча.',
     color: '#fbbf24',
     unlock: '',
     allowCheckpoints: false,
@@ -111,8 +111,7 @@ export const MODE_MAP: Record<GameMode, ModeDef> = MODES.reduce(
   {} as Record<GameMode, ModeDef>,
 );
 
-export function isModeUnlocked(save: SaveData, id: GameMode): boolean {
-  const def = MODE_MAP[id];
-  if (!def.unlock) return true;
-  return save.unlocks.includes(def.unlock);
+/** Все режимы открыты с самого начала — пробовать можно что угодно. */
+export function isModeUnlocked(_save: SaveData, _id: GameMode): boolean {
+  return true;
 }
