@@ -3,7 +3,8 @@ import { todayKey } from './dailyRun';
 import { TEST_MODE, emptyUpgrades } from './content';
 
 const KEY = 'nova_strike_save_v1'; // ключ стабилен — старые сейвы продолжают грузиться
-export const SAVE_VERSION = 8;
+const BACKUP_KEY = 'nova_strike_save_backup_v1';
+export const SAVE_VERSION = 9;
 
 const SHIP_IDS: ShipId[] = ['falcon', 'comet', 'titan', 'nova', 'voidx'];
 
@@ -71,44 +72,14 @@ interface LegacySave extends Partial<SaveData> {
 }
 
 function migrate(raw: LegacySave): SaveData {
-  const sourceVersion = typeof raw.v === 'number' ? raw.v : 1;
   const d = defaultSave();
-
-  // v3 — разовая тестовая выдача прогресса; откатываем её полностью
-  if (sourceVersion === 3) {
-    return { ...d, muted: !!raw.muted, daily: { ...d.daily, ...(raw.daily ?? {}) } };
-  }
-
-  // v6/v7 — сборки с включённой песочницей: сбрасываем всё, что было выдано
-  // бесплатно, но сохраняем рекорды, статистику и заслуженные медали.
-  if (sourceVersion === 6 || sourceVersion === 7) {
-    const best = typeof raw.best === 'number' ? raw.best : 0;
-    const keep: SaveData = {
-      ...d,
-      best,
-      muted: !!raw.muted,
-      achievements: Array.isArray(raw.achievements) ? raw.achievements : [],
-      tracks: { ...(raw.tracks ?? {}) },
-      stats: { ...d.stats, ...(raw.stats ?? {}) },
-      bestByMode: (raw.bestByMode ?? {}) as Partial<Record<GameMode, number>>,
-      daily: { ...d.daily, ...(raw.daily ?? {}) },
-    };
-    // вехи и разблокировки пересчитываем честно — только по лучшему счёту
-    for (const u of UNLOCK_BY_SCORE) {
-      if (keep.best >= u.score) keep.unlocks.push(u.id);
-    }
-    for (const m of [1000, 5000, 15000, 30000, 60000, 100000, 200000, 400000]) {
-      if (keep.best >= m) keep.checkpoints.push(m);
-    }
-    if (keep.unlocks.includes('ship:voidx')) keep.shipsOwned.push('voidx');
-    return keep;
-  }
 
   const save: SaveData = {
     ...d,
     ...raw,
     v: SAVE_VERSION,
-    shipUpgrades: emptyShipUpgrades(),
+    // Сначала сохраняем ВСЕ ключи (включая гибриды), ниже лишь дополняем базовые.
+    shipUpgrades: { ...(raw.shipUpgrades ?? {}) },
     shipStars: { ...(raw.shipStars ?? {}) },
     fusions: Array.isArray(raw.fusions) ? [...raw.fusions] : [],
     stats: { ...d.stats, ...(raw.stats ?? {}) },
@@ -131,9 +102,7 @@ function migrate(raw: LegacySave): SaveData {
     save.shipUpgrades.falcon = { ...emptyUpgrades(), ...raw.upgrades };
   }
 
-  // старые пороги 50 000 / 100 000 больше не используются — чистим мусор
-  save.checkpoints = save.checkpoints.filter((c) => c !== 50000 && c !== 100000);
-
+  // Миграции только добавляют заслуженные разблокировки — ничего не удаляют.
   for (const u of UNLOCK_BY_SCORE) {
     if (save.best >= u.score) {
       if (!save.checkpoints.includes(u.score)) save.checkpoints.push(u.score);
@@ -157,7 +126,13 @@ export function loadSave(): SaveData {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return applyTestMode(defaultSave());
-    const save = applyTestMode(migrate(JSON.parse(raw) as LegacySave));
+    const parsed = JSON.parse(raw) as LegacySave;
+    const sourceVersion = typeof parsed.v === 'number' ? parsed.v : 1;
+    // Перед любой сменой схемы сохраняем исходный JSON как страховку.
+    if (sourceVersion < SAVE_VERSION) {
+      localStorage.setItem(BACKUP_KEY, raw);
+    }
+    const save = applyTestMode(migrate(parsed));
     // фиксируем новую версию, чтобы разовые миграции не повторялись
     persist(save);
     return save;

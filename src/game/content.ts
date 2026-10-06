@@ -15,7 +15,7 @@ import type {
 import { ABILITIES, fuseAbilities, type AbilityDef } from './abilities';
 
 /** Версия сборки — показывается в меню. */
-export const BUILD_VERSION = '1.8.1';
+export const BUILD_VERSION = '1.8.2';
 
 // ── Ранги наград ─────────────────────────────────────────────────────────────
 export interface RankDef {
