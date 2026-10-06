@@ -1,6 +1,7 @@
-import { Layers, Play, Rocket, Trophy, Volume2, VolumeX, Wrench } from 'lucide-react';
+import { Info, Layers, Play, Rocket, Trophy, Volume2, VolumeX, Wrench } from 'lucide-react';
 import type { GameMode, SaveData } from '../game/types';
 import { MODE_MAP } from '../game/modes';
+import { BUILD_VERSION } from '../game/content';
 import { CoinChip } from './bits';
 import { cn } from '../utils/cn';
 
@@ -16,7 +17,7 @@ export function Menu({
   lastMode: GameMode;
   startCp: number;
   onPlay: (mode: GameMode, cp: number) => void;
-  onOpen: (s: 'upgrades' | 'ships' | 'achievements' | 'modes') => void;
+  onOpen: (s: 'upgrades' | 'ships' | 'achievements' | 'modes' | 'info') => void;
   onToggleMute: () => void;
 }) {
   const mode = MODE_MAP[lastMode];
@@ -26,6 +27,14 @@ export function Menu({
         <div className="text-[10px] font-extrabold tracking-[0.3em] text-cyan-300/70">NS-77 // ПРОТОКОЛ «БЕЗДНА»</div>
         <div className="flex items-center gap-2">
           <CoinChip value={save.coins} />
+          <button
+            type="button"
+            onClick={() => onOpen('info')}
+            className="btn glass flex h-11 w-11 items-center justify-center rounded-full text-cyan-100"
+            aria-label="Что нового"
+          >
+            <Info size={18} strokeWidth={2.6} />
+          </button>
           <button
             type="button"
             onClick={onToggleMute}
@@ -107,6 +116,9 @@ export function Menu({
         </div>
         <div className="animate-pulse-soft mt-4 text-center text-[10px] font-semibold tracking-[0.16em] text-slate-500">
           ТЯНИ ПАЛЬЦЕМ · ЖМИ СПОСОБНОСТЬ · ВЫЖИВИ
+        </div>
+        <div className="num mt-1.5 text-center text-[9px] font-bold tracking-[0.2em] text-slate-600">
+          СБОРКА v{BUILD_VERSION}
         </div>
       </div>
     </div>

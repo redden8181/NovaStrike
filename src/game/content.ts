@@ -1,4 +1,21 @@
-import type { AbilityId, EnemyKind, PowerupType, RankId, SaveData, ShipId, ShipUpgrades, TechId, UpgradeId } from './types';
+import type {
+  AbilityId,
+  BaseShipId,
+  EnemyKind,
+  FusedShipId,
+  PowerupType,
+  RankId,
+  SaveData,
+  ShipId,
+  ShipUpgrades,
+  TechId,
+  UpgradeId,
+} from './types';
+
+import { ABILITIES, fuseAbilities, type AbilityDef } from './abilities';
+
+/** Версия сборки — показывается в меню. */
+export const BUILD_VERSION = '1.8.1';
 
 // ── Ранги наград ─────────────────────────────────────────────────────────────
 export interface RankDef {
@@ -49,31 +66,31 @@ export const MILESTONES: MilestoneDef[] = [
     color: '#38bdf8',
   },
   {
-    score: 120000,
+    score: 100000,
     rank: 'master',
     name: 'МАСТЕР',
-    detail: 'Открыт «Босс-руш»',
-    unlock: 'bossrush',
+    detail: 'Открыт корабль VOID-X',
+    unlock: 'ship:voidx',
     coins: 4000,
     checkpoint: true,
     color: '#a78bfa',
   },
   {
-    score: 250000,
+    score: 200000,
     rank: 'legend',
     name: 'ЛЕГЕНДА',
-    detail: 'Открыт «Хардкор»',
-    unlock: 'hardcore',
+    detail: 'Открыт «Босс-руш»',
+    unlock: 'bossrush',
     coins: 7000,
     checkpoint: false,
     color: '#f472b6',
   },
   {
-    score: 500000,
+    score: 400000,
     rank: 'void',
     name: 'БЕЗДНА',
-    detail: 'Открыт корабль VOID-X',
-    unlock: 'ship:voidx',
+    detail: 'Открыт «Хардкор»',
+    unlock: 'hardcore',
     coins: 15000,
     checkpoint: false,
     color: '#818cf8',
@@ -258,13 +275,22 @@ export const DAMAGE = {
 
 /** Платная способность: откат уровня угрозы. */
 export const ROLLBACK = {
-  cost: 650,
+  get cost() {
+    return TEST_MODE ? 0 : 650;
+  },
   cooldown: 60,
 } as const;
+
+/**
+ * ТЕСТОВЫЙ РЕЖИМ — всё открыто и бесплатно.
+ * Поставь true, чтобы снова включить песочницу.
+ */
+export const TEST_MODE = false;
 
 export function upgradeCost(id: UpgradeId, level: number): number {
   const def = UPGRADE_MAP[id];
   if (level >= def.max) return Infinity;
+  if (TEST_MODE) return 0;
   return Math.round((def.base * Math.pow(def.growth, level)) / 5) * 5;
 }
 
@@ -346,6 +372,47 @@ export interface ShipDef {
   tech: TechId;
   accent: string;
   voidDrive?: boolean;
+  /** индивидуальные лимиты прокачки корпуса (сколько пунктов можно вложить) */
+  caps: Partial<Record<UpgradeId, number>>;
+  /** гибрид: из каких корпусов собран */
+  fusedFrom?: [BaseShipId, BaseShipId];
+  /** гибрид: объединённая способность обоих родителей */
+  fusedAbility?: AbilityDef;
+}
+
+// ── Ранги корпуса (звёзды) ───────────────────────────────────────────────────
+export interface StarRank {
+  name: string;
+  color: string;
+  /** +N к каждому лимиту прокачки */
+  capBonus: number;
+  /** множитель всех характеристик */
+  statMul: number;
+  cost: number;
+}
+
+export const STAR_RANKS: StarRank[] = [
+  { name: 'СТАНДАРТ', color: '#94a3b8', capBonus: 0, statMul: 1, cost: 0 },
+  { name: '★', color: '#cbd5e1', capBonus: 1, statMul: 1.06, cost: 2500 },
+  { name: '★★', color: '#fbbf24', capBonus: 2, statMul: 1.13, cost: 6000 },
+  { name: '★★★', color: '#fb923c', capBonus: 3, statMul: 1.21, cost: 14000 },
+  { name: 'АЛМАЗ', color: '#38bdf8', capBonus: 5, statMul: 1.32, cost: 32000 },
+  { name: 'ЛЕГЕНДА', color: '#f472b6', capBonus: 7, statMul: 1.45, cost: 70000 },
+];
+
+export const MAX_STAR = STAR_RANKS.length - 1;
+
+export function starOf(save: SaveData, id: ShipId): number {
+  return Math.min(MAX_STAR, save.shipStars?.[id] ?? 0);
+}
+
+export function starRank(star: number): StarRank {
+  return STAR_RANKS[Math.max(0, Math.min(MAX_STAR, star))];
+}
+
+export function starUpCost(star: number): number {
+  if (TEST_MODE) return 0;
+  return STAR_RANKS[Math.min(MAX_STAR, star + 1)]?.cost ?? Infinity;
 }
 
 export const SHIPS: ShipDef[] = [
@@ -360,6 +427,8 @@ export const SHIPS: ShipDef[] = [
     ability: 'dash',
     tech: 'missiles',
     accent: '#22d3ee',
+    // ровный универсал — по 3 пункта почти везде
+    caps: { power: 3, rate: 3, streams: 2, hull: 3, armor: 3, shield: 3, magnet: 3, tech: 3 },
   },
   {
     id: 'comet',
@@ -372,6 +441,8 @@ export const SHIPS: ShipDef[] = [
     ability: 'afterburner',
     tech: 'lightning',
     accent: '#a78bfa',
+    // гонщик: много темпа и магнита, мало брони
+    caps: { power: 2, rate: 6, streams: 2, hull: 2, armor: 1, shield: 4, magnet: 5, tech: 4 },
   },
   {
     id: 'titan',
@@ -384,6 +455,8 @@ export const SHIPS: ShipDef[] = [
     ability: 'fortress',
     tech: 'bombs',
     accent: '#34d399',
+    // танк: броня и прочность качаются глубоко
+    caps: { power: 4, rate: 2, streams: 2, hull: 6, armor: 6, shield: 5, magnet: 2, tech: 4 },
   },
   {
     id: 'nova',
@@ -396,6 +469,8 @@ export const SHIPS: ShipDef[] = [
     ability: 'novabeam',
     tech: 'drones',
     accent: '#f472b6',
+    // артиллерия: оружие прокачивается максимально
+    caps: { power: 6, rate: 2, streams: 4, hull: 3, armor: 3, shield: 3, magnet: 2, tech: 5 },
   },
   {
     id: 'voidx',
@@ -403,20 +478,133 @@ export const SHIPS: ShipDef[] = [
     tag: 'СЕКРЕТ',
     desc: 'ДВИГАТЕЛЬ БЕЗДНЫ — урон растёт, пока летишь нетронутым.',
     cost: 0,
-    requires: 500000,
+    requires: 100000,
     requiresUnlock: 'ship:voidx',
     mods: { speed: 1.25, rate: 1.12, damage: 1.3, hp: 95, armor: 15, streams: 1 },
     ability: 'collapse',
     tech: 'singularity',
     accent: '#818cf8',
     voidDrive: true,
+    // прототип: ровно сильный во всём
+    caps: { power: 4, rate: 4, streams: 3, hull: 4, armor: 4, shield: 4, magnet: 4, tech: 5 },
   },
 ];
 
-export const SHIP_MAP: Record<ShipId, ShipDef> = SHIPS.reduce(
+export const SHIP_MAP: Record<string, ShipDef> = SHIPS.reduce(
   (acc, s) => ((acc[s.id] = s), acc),
-  {} as Record<ShipId, ShipDef>,
+  {} as Record<string, ShipDef>,
 );
+
+// ── Слияние корпусов ─────────────────────────────────────────────────────────
+export const FUSION_COST = 12000;
+
+export function fusionId(a: BaseShipId, b: BaseShipId): FusedShipId {
+  const [x, y] = [a, b].sort();
+  return `fused:${x}+${y}`;
+}
+
+/** Короткое имя без индекса модели: FALCON-7 → FALCON */
+const shortName = (n: string) => n.split('-')[0];
+
+/**
+ * Характеристики корпуса, прокачанного до предела своих лимитов.
+ * Именно они складываются при слиянии — гибрид стартует не слабее,
+ * чем два полностью прокачанных родителя вместе взятых.
+ */
+function maxedStats(def: ShipDef): ShipMods {
+  const cap = (id: UpgradeId) => def.caps[id] ?? UPGRADE_MAP[id].max;
+  return {
+    damage: def.mods.damage * (1 + 0.18 * cap('power')),
+    rate: def.mods.rate * (1 + 0.22 * cap('rate')),
+    speed: def.mods.speed,
+    hp: def.mods.hp + 25 * cap('hull'),
+    armor: def.mods.armor + 4 * cap('armor'),
+    streams: def.mods.streams + cap('streams'),
+  };
+}
+
+/** Собирает определение гибрида из двух базовых корпусов. */
+export function buildFusion(a: BaseShipId, b: BaseShipId): ShipDef {
+  const A = SHIP_MAP[a];
+  const B = SHIP_MAP[b];
+  const ma = maxedStats(A);
+  const mb = maxedStats(B);
+
+  const caps: Partial<Record<UpgradeId, number>> = {};
+  for (const u of UPGRADES) {
+    const ca = A.caps[u.id] ?? 0;
+    const cb = B.caps[u.id] ?? 0;
+    // гибрид наследует лучший лимит каждой ветки и получает +1 сверху
+    caps[u.id] = Math.min(u.max, Math.max(ca, cb) + 1);
+  }
+
+  const ability = fuseAbilities(A.ability, B.ability);
+  return {
+    id: fusionId(a, b),
+    name: `${shortName(A.name)}·${shortName(B.name)}`,
+    tag: 'ГИБРИД',
+    desc: `Сплав ${A.name} и ${B.name}. Мощь обоих корпусов и объединённая способность.`,
+    cost: 0,
+    requires: 0,
+    // сумма предельных характеристик обоих родителей
+    mods: {
+      speed: Math.max(ma.speed, mb.speed) * 1.1,
+      rate: ma.rate + mb.rate,
+      damage: ma.damage + mb.damage,
+      hp: Math.round(ma.hp + mb.hp),
+      armor: Math.min(DAMAGE.armorCap, Math.round(ma.armor + mb.armor)),
+      streams: Math.max(1, Math.round((ma.streams + mb.streams) / 2)),
+    },
+    ability: A.ability,
+    fusedAbility: ability,
+    tech: B.tech,
+    accent: B.accent,
+    voidDrive: A.voidDrive || B.voidDrive,
+    caps,
+    fusedFrom: [a, b],
+  };
+}
+
+/** Определение любого корабля, включая гибриды из сохранения. */
+export function resolveShip(save: SaveData, id: ShipId): ShipDef {
+  const base = SHIP_MAP[id];
+  if (base) return base;
+  const rec = save.fusions?.find((f) => f.id === id);
+  if (rec) return buildFusion(rec.a, rec.b);
+  return SHIP_MAP.falcon;
+}
+
+/** Все доступные игроку корпуса: базовые + созданные гибриды. */
+export function allShips(save: SaveData): ShipDef[] {
+  const fused = (save.fusions ?? []).map((f) => buildFusion(f.a, f.b));
+  return [...SHIPS, ...fused];
+}
+
+/** Лимит прокачки конкретной ветки с учётом звёзд. */
+export function capOf(def: ShipDef, id: UpgradeId, star: number): number {
+  const global = UPGRADE_MAP[id].max;
+  const base = def.caps[id] ?? global;
+  if (id === 'turretL' || id === 'turretR') return global;
+  return Math.min(global, base + starRank(star).capBonus);
+}
+
+/** Корпус прокачан полностью — условие для слияния. */
+/** Турели — необязательный модуль, они не учитываются в условии полной прокачки. */
+export function isFullyUpgraded(save: SaveData, id: ShipId): boolean {
+  const def = resolveShip(save, id);
+  const star = starOf(save, id);
+  const lv = shipUpgradesOf(save, id);
+  for (const u of UPGRADES) {
+    if (u.group === 'turret') continue;
+    if (lv[u.id] < capOf(def, u.id, star)) return false;
+  }
+  return true;
+}
+
+/** Способность корпуса с учётом слияния. */
+export function abilityOf(def: ShipDef): AbilityDef {
+  return def.fusedAbility ?? ABILITIES[def.ability];
+}
 
 export const VOID_DRIVE_TIERS: { kills: number; bonus: number }[] = [
   { kills: 10, bonus: 0.05 },
@@ -501,3 +689,73 @@ export const ACHIEVEMENT_MAP = ACHIEVEMENTS.reduce(
   (acc, a) => ((acc[a.id] = a), acc),
   {} as Record<string, AchievementDef>,
 );
+
+// ── История сборок (экран «i» в меню) ────────────────────────────────────────
+export interface ChangelogEntry {
+  version: string;
+  title: string;
+  items: string[];
+}
+
+export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.8.0',
+    title: 'СИЛЬНЫЕ ГИБРИДЫ',
+    items: [
+      'Гибрид наследует сумму предельных характеристик обоих родителей — слияние всегда выгодно',
+      'Способности объединяются в одну усиленную: эффекты обоих корпусов срабатывают разом, откат короче',
+      'После слияния появляется экран с характеристиками нового корабля',
+      'Турели больше не нужны для повышения ранга — достаточно веток «Оружие» и «Корпус»',
+    ],
+  },
+  {
+    version: '1.7.0',
+    title: 'ЗВЁЗДЫ И СЛИЯНИЕ',
+    items: [
+      'Ранги корпуса: ★ → ★★ → ★★★ → АЛМАЗ → ЛЕГЕНДА. Каждый ранг поднимает лимиты прокачки и усиливает характеристики',
+      'Слияние: два полностью прокачанных корпуса соединяются в гибрид с новым обликом, способностью и техникой',
+      'Гибрид можно разобрать обратно и собрать другую пару',
+      'У каждого корабля свои лимиты прокачки: у тяжёлого глубже броня, у артиллерии — оружие',
+      'Снаряды турелей теперь самонаводящиеся',
+      'VOID-X открывается на 100 000 очков',
+    ],
+  },
+  {
+    version: '1.6.0',
+    title: 'ТУРЕЛИ И УРОН',
+    items: [
+      'Боковые турели с вращающимися стволами, покупаются раздельно',
+      'Панель «Боевая мощь» в ангаре: урон снаряда, залпа и DPS',
+      'У каждого улучшения показан точный прирост',
+    ],
+  },
+  {
+    version: '1.5.0',
+    title: 'МОДЕЛЬ УРОНА',
+    items: [
+      'Жизни заменены на числовое HP: 70–220 в зависимости от корпуса',
+      'Броня снижает урон в процентах, у TITAN-IX — 30%',
+      'Платный откат уровня угрозы',
+      'Длительность всех способностей увеличена',
+    ],
+  },
+  {
+    version: '1.4.0',
+    title: 'РАНГОВЫЕ НАГРАДЫ',
+    items: [
+      'Награды собраны в ранговые ячейки: бронза → бездна',
+      'Потолок врагов и снарядов на каждом уровне сложности',
+      'Уникальная техника у каждого корпуса: ракеты, молния, бомбы, дроны, сингулярность',
+      'Прокачка привязана к конкретному кораблю',
+    ],
+  },
+  {
+    version: '1.3.0',
+    title: 'РЕЖИМЫ И БОССЫ',
+    items: [
+      'Режимы: Бесконечный, Босс-руш, Хардкор, Ежедневное испытание',
+      'Четыре линейных корабля с тремя фазами боя',
+      'Синергии усилителей и активные способности кораблей',
+    ],
+  },
+];

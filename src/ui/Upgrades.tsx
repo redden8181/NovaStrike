@@ -16,7 +16,22 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { SaveData, TechId, UpgradeId } from '../game/types';
-import { DAMAGE, SHIP_MAP, TECHS, UPGRADES, shipUpgradesOf, upgradeCost } from '../game/content';
+import {
+  DAMAGE,
+  MAX_STAR,
+  TECHS,
+  abilityOf,
+  TEST_MODE,
+  UPGRADES,
+  capOf,
+  isFullyUpgraded,
+  resolveShip,
+  shipUpgradesOf,
+  starOf,
+  starRank,
+  starUpCost,
+  upgradeCost,
+} from '../game/content';
 import { drawGlow, drawShip } from '../game/sprites';
 import { CoinChip, ScreenHeader } from './bits';
 import { cn } from '../utils/cn';
@@ -63,6 +78,8 @@ const TECH_ICON: Record<TechId, LucideIcon> = {
 
 type Tab = 'weapon' | 'hull' | 'turret';
 
+const BASE_FIRE_RATE = 4.1;
+
 const TABS: { id: Tab; label: string; color: string }[] = [
   { id: 'weapon', label: 'ОРУЖИЕ', color: '#f472b6' },
   { id: 'hull', label: 'КОРПУС', color: '#4ade80' },
@@ -72,7 +89,7 @@ const TABS: { id: Tab; label: string; color: string }[] = [
 /** Живое превью корпуса со всеми купленными модификациями. */
 function HangarPreview({ save }: { save: SaveData }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const ship = SHIP_MAP[save.ship] ?? SHIP_MAP.falcon;
+  const ship = resolveShip(save, save.ship);
   const up = shipUpgradesOf(save, save.ship);
 
   useEffect(() => {
@@ -183,20 +200,73 @@ export function Upgrades({
   save,
   onBack,
   onBuy,
+  onStarUp,
 }: {
   save: SaveData;
   onBack: () => void;
   onBuy: (id: UpgradeId) => void;
+  onStarUp: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('weapon');
-  const ship = SHIP_MAP[save.ship] ?? SHIP_MAP.falcon;
+  const ship = resolveShip(save, save.ship);
   const levels = shipUpgradesOf(save, save.ship);
   const tech = TECHS[ship.tech];
+  const shipAbility = abilityOf(ship);
+  const star = starOf(save, save.ship);
+  const rank = starRank(star);
+  const nextRank = star < MAX_STAR ? starRank(star + 1) : null;
+  const starCost = starUpCost(star);
+  const canStarUp = !!nextRank && (TEST_MODE || save.coins >= starCost) && isFullyUpgraded(save, save.ship);
+  const statMul = rank.statMul;
 
-  const maxHp = Math.round(ship.mods.hp + 25 * levels.hull);
-  const armor = Math.min(DAMAGE.armorCap, ship.mods.armor + 4 * levels.armor);
+  const maxHp = Math.round(ship.mods.hp * statMul + 25 * levels.hull);
+  const armor = Math.min(DAMAGE.armorCap, Math.round(ship.mods.armor * statMul) + 4 * levels.armor);
   const perBullet = Math.max(1, Math.round(DAMAGE.bullet * (1 - armor / 100)));
   const hasTurret = levels.turretL > 0 || levels.turretR > 0;
+
+  // ── боевые показатели: что есть сейчас и что даст следующий уровень ──
+  const dmgOf = (lv: number) => 1 * (1 + 0.18 * lv) * ship.mods.damage * statMul;
+  const rateOf = (lv: number) => BASE_FIRE_RATE * (1 + 0.22 * lv) * ship.mods.rate * statMul;
+  const guns = 1 + levels.streams + ship.mods.streams;
+
+  const shotDmg = dmgOf(levels.power);
+  const fireRate = rateOf(levels.rate);
+  const dps = shotDmg * fireRate * guns;
+
+  const turretCount = levels.turretL + levels.turretR;
+  const turretDmgOf = (lv: number) => shotDmg * (0.34 + 0.2 * lv);
+  const turretRateOf = (lv: number) => 1.6 * (1 + 0.2 * lv);
+  const turretShot = turretDmgOf(levels.turretPower);
+  const turretDps = turretCount * turretShot * turretRateOf(levels.turretRate) * (1 + levels.turretStreams);
+  const totalDps = dps + turretDps;
+
+  /** Прирост показателя от следующего уровня улучшения — для подписи на кнопке. */
+  const gainFor = (id: UpgradeId): string | null => {
+    const lv = levels[id];
+    if (lv >= capOf(ship, id, star)) return null;
+    switch (id) {
+      case 'power':
+        return `${shotDmg.toFixed(2)} → ${dmgOf(lv + 1).toFixed(2)} урона`;
+      case 'rate':
+        return `${fireRate.toFixed(1)} → ${rateOf(lv + 1).toFixed(1)} выстр/с`;
+      case 'streams':
+        return `${guns} → ${guns + 1} ствола · DPS ${dps.toFixed(0)} → ${(shotDmg * fireRate * (guns + 1)).toFixed(0)}`;
+      case 'hull':
+        return `${maxHp} → ${maxHp + 25} HP`;
+      case 'armor': {
+        const next = Math.min(DAMAGE.armorCap, armor + 4);
+        return `${armor}% → ${next}% · попадание −${Math.max(1, Math.round(DAMAGE.bullet * (1 - next / 100)))} HP`;
+      }
+      case 'turretPower':
+        return `${turretShot.toFixed(2)} → ${turretDmgOf(lv + 1).toFixed(2)} урона`;
+      case 'turretRate':
+        return `${turretRateOf(levels.turretRate).toFixed(1)} → ${turretRateOf(lv + 1).toFixed(1)} выстр/с`;
+      case 'turretStreams':
+        return `${1 + lv} → ${2 + lv} снаряда у каждой`;
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-[#02030a]/88 backdrop-blur-md">
@@ -238,6 +308,120 @@ export function Upgrades({
           </div>
         </div>
 
+        {/* ── боевая мощь: конкретные цифры урона ── */}
+        <div className="glass pop-in-1 mt-2.5 rounded-2xl p-3">
+          <div className="mb-2 flex items-center gap-1.5">
+            <Crosshair size={12} className="text-pink-400" strokeWidth={2.8} />
+            <span className="text-[9px] font-black tracking-[0.24em] text-pink-300/90">БОЕВАЯ МОЩЬ</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[10px] font-semibold text-slate-400">Урон одного снаряда</span>
+              <span className="num text-[12px] font-black text-pink-300">{shotDmg.toFixed(2)}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[10px] font-semibold text-slate-400">Скорострельность</span>
+              <span className="num text-[12px] font-black text-amber-300">{fireRate.toFixed(1)} выстр/с</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-[10px] font-semibold text-slate-400">Залп ({guns} ств.)</span>
+              <span className="num text-[12px] font-black text-cyan-300">{(shotDmg * guns).toFixed(2)}</span>
+            </div>
+            <div className="mt-0.5 flex items-baseline justify-between gap-2 border-t border-white/10 pt-1.5">
+              <span className="text-[10px] font-bold text-slate-300">Урон носа в секунду</span>
+              <span className="num text-[14px] font-black text-orange-300">{dps.toFixed(1)}</span>
+            </div>
+            {turretCount > 0 && (
+              <>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-[10px] font-semibold text-slate-400">
+                    Турели ×{turretCount} — снаряд {turretShot.toFixed(2)}
+                  </span>
+                  <span className="num text-[12px] font-black text-amber-300">+{turretDps.toFixed(1)}</span>
+                </div>
+                <div className="flex items-baseline justify-between gap-2 border-t border-white/10 pt-1.5">
+                  <span className="text-[10px] font-black text-slate-200">ОБЩИЙ УРОН В СЕКУНДУ</span>
+                  <span className="num text-[15px] font-black text-emerald-300">{totalDps.toFixed(1)}</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* ── способность корпуса ── */}
+        <div
+          className="glass pop-in-1 mt-2.5 rounded-2xl px-3 py-2"
+          style={{ background: `${shipAbility.color}10`, borderColor: `${shipAbility.color}3a` }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span
+              className="flex min-w-0 items-center gap-1.5 text-[10px] font-black tracking-[0.1em]"
+              style={{ color: shipAbility.color }}
+            >
+              <Sparkles size={11} strokeWidth={3} className="shrink-0" />
+              <span className="truncate">{shipAbility.name}</span>
+            </span>
+            <span className="num shrink-0 text-[9px] font-bold text-slate-400">
+              {shipAbility.duration.toFixed(1)}с / {shipAbility.cooldown}с
+            </span>
+          </div>
+        </div>
+
+        {/* ── ранг корпуса: звёзды ── */}
+        <div
+          className="glass pop-in-1 mt-2.5 rounded-2xl p-3"
+          style={{ borderColor: `${rank.color}44`, boxShadow: star > 0 ? `0 0 20px ${rank.color}22` : undefined }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[9px] font-black tracking-[0.24em] text-slate-500">РАНГ КОРПУСА</div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-[15px] font-black tracking-[0.1em]" style={{ color: rank.color }}>
+                  {rank.name}
+                </span>
+                <span className="num text-[9px] font-bold text-slate-500">×{rank.statMul.toFixed(2)} к статам</span>
+              </div>
+            </div>
+            {nextRank ? (
+              <button
+                type="button"
+                disabled={!canStarUp}
+                onClick={onStarUp}
+                className={cn(
+                  'btn flex h-11 min-w-[104px] shrink-0 flex-col items-center justify-center rounded-xl px-2.5',
+                  canStarUp ? 'btn-primary' : 'btn-ghost text-slate-500',
+                )}
+              >
+                <span className="text-[10px] font-black tracking-[0.1em]">{nextRank.name}</span>
+                <span className="num text-[8.5px] font-bold">
+                  {TEST_MODE ? 'ТЕСТ' : starCost.toLocaleString('ru-RU')}
+                </span>
+              </button>
+            ) : (
+              <span className="text-[10px] font-black tracking-[0.1em] text-pink-300">ПРЕДЕЛ</span>
+            )}
+          </div>
+          <div className="mt-1.5 flex gap-1">
+            {Array.from({ length: MAX_STAR }).map((_, i) => (
+              <span
+                key={i}
+                className="h-1.5 flex-1 rounded-full"
+                style={{
+                  background: i < star ? starRank(i + 1).color : 'rgba(255,255,255,0.1)',
+                  boxShadow: i < star ? `0 0 6px ${starRank(i + 1).color}` : undefined,
+                }}
+              />
+            ))}
+          </div>
+          <div className="mt-1.5 text-[9px] leading-snug font-semibold text-slate-400">
+            {nextRank
+              ? canStarUp
+                ? `Повышение откроет +${nextRank.capBonus - rank.capBonus} пункт(ов) к каждой ветке прокачки`
+                : 'Прокачай «Оружие» и «Корпус» до предела — турели для ранга не нужны'
+              : 'Корпус достиг максимального ранга'}
+          </div>
+        </div>
+
         {/* ── вкладки ── */}
         <div className="mt-3 grid grid-cols-3 gap-1.5">
           {TABS.map((t) => (
@@ -268,9 +452,10 @@ export function Upgrades({
           {UPGRADES.filter((u) => u.group === tab).map((def, idx) => {
             const isTech = def.id === 'tech';
             const lvl = levels[def.id];
+            const cap = capOf(ship, def.id, star);
             const cost = upgradeCost(def.id, lvl);
-            const maxed = lvl >= def.max;
-            const afford = save.coins >= cost;
+            const maxed = lvl >= cap;
+            const afford = TEST_MODE || save.coins >= cost;
             const needsTurret = def.group === 'turret' && def.max > 1 && !hasTurret;
             const Icon = isTech ? TECH_ICON[ship.tech] : UPGRADE_ICON[def.id];
             const color = isTech ? tech.color : UPGRADE_COLOR[def.id];
@@ -296,9 +481,15 @@ export function Upgrades({
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[12px] font-extrabold tracking-[0.08em] text-slate-100">{name}</div>
                   <div className="text-[9.5px] leading-snug font-medium text-slate-400">{sub}</div>
+                  {/* точный прирост от следующего уровня */}
+                  {!maxed && gainFor(def.id) && (
+                    <div className="num mt-0.5 text-[9px] font-bold" style={{ color }}>
+                      {gainFor(def.id)}
+                    </div>
+                  )}
                   {!isToggle && (
-                    <div className="mt-1.5 flex gap-1">
-                      {Array.from({ length: def.max }).map((_, i) => (
+                    <div className="mt-1.5 flex items-center gap-1">
+                      {Array.from({ length: cap }).map((_, i) => (
                         <span
                           key={i}
                           className="h-1.5 flex-1 rounded-full transition-all"
@@ -308,6 +499,9 @@ export function Upgrades({
                           }}
                         />
                       ))}
+                      <span className="num ml-0.5 shrink-0 text-[8.5px] font-black text-slate-500">
+                        {lvl}/{cap}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -330,6 +524,8 @@ export function Upgrades({
                     ) : (
                       'МАКС'
                     )
+                  ) : TEST_MODE ? (
+                    'ТЕСТ'
                   ) : (
                     <>
                       <Coins size={13} strokeWidth={2.6} />

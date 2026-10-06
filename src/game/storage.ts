@@ -1,11 +1,24 @@
 import type { GameMode, SaveData, ShipId, ShipUpgrades } from './types';
 import { todayKey } from './dailyRun';
-import { emptyUpgrades } from './content';
+import { TEST_MODE, emptyUpgrades } from './content';
 
 const KEY = 'nova_strike_save_v1'; // ключ стабилен — старые сейвы продолжают грузиться
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 8;
 
 const SHIP_IDS: ShipId[] = ['falcon', 'comet', 'titan', 'nova', 'voidx'];
+
+/** В тестовом режиме открываем все режимы, корабли и вехи. */
+function applyTestMode(save: SaveData): SaveData {
+  if (!TEST_MODE) return save;
+  const milestones = [1000, 5000, 15000, 30000, 60000, 120000, 250000, 500000];
+  return {
+    ...save,
+    coins: Math.max(save.coins, 999999),
+    checkpoints: [...new Set([...save.checkpoints, ...milestones])].sort((a, b) => a - b),
+    unlocks: [...new Set([...save.unlocks, 'endless', 'bossrush', 'hardcore', 'ship:voidx'])],
+    shipsOwned: [...new Set([...save.shipsOwned, ...SHIP_IDS])],
+  };
+}
 
 function emptyShipUpgrades(): Record<ShipId, ShipUpgrades> {
   const out = {} as Record<ShipId, ShipUpgrades>;
@@ -20,6 +33,8 @@ export function defaultSave(): SaveData {
     coins: 0,
     muted: false,
     shipUpgrades: emptyShipUpgrades(),
+    shipStars: {},
+    fusions: [],
     checkpoints: [],
     ship: 'falcon',
     shipsOwned: ['falcon'],
@@ -45,9 +60,9 @@ export function defaultSave(): SaveData {
 /** Пороги счёта → id разблокировок (для старых сейвов без поля unlocks). */
 const UNLOCK_BY_SCORE: { score: number; id: string }[] = [
   { score: 60000, id: 'endless' },
-  { score: 120000, id: 'bossrush' },
-  { score: 250000, id: 'hardcore' },
-  { score: 500000, id: 'ship:voidx' },
+  { score: 100000, id: 'ship:voidx' },
+  { score: 200000, id: 'bossrush' },
+  { score: 400000, id: 'hardcore' },
 ];
 
 /** Старое сохранение могло держать одну общую прокачку в поле `upgrades`. */
@@ -64,11 +79,38 @@ function migrate(raw: LegacySave): SaveData {
     return { ...d, muted: !!raw.muted, daily: { ...d.daily, ...(raw.daily ?? {}) } };
   }
 
+  // v6/v7 — сборки с включённой песочницей: сбрасываем всё, что было выдано
+  // бесплатно, но сохраняем рекорды, статистику и заслуженные медали.
+  if (sourceVersion === 6 || sourceVersion === 7) {
+    const best = typeof raw.best === 'number' ? raw.best : 0;
+    const keep: SaveData = {
+      ...d,
+      best,
+      muted: !!raw.muted,
+      achievements: Array.isArray(raw.achievements) ? raw.achievements : [],
+      tracks: { ...(raw.tracks ?? {}) },
+      stats: { ...d.stats, ...(raw.stats ?? {}) },
+      bestByMode: (raw.bestByMode ?? {}) as Partial<Record<GameMode, number>>,
+      daily: { ...d.daily, ...(raw.daily ?? {}) },
+    };
+    // вехи и разблокировки пересчитываем честно — только по лучшему счёту
+    for (const u of UNLOCK_BY_SCORE) {
+      if (keep.best >= u.score) keep.unlocks.push(u.id);
+    }
+    for (const m of [1000, 5000, 15000, 30000, 60000, 100000, 200000, 400000]) {
+      if (keep.best >= m) keep.checkpoints.push(m);
+    }
+    if (keep.unlocks.includes('ship:voidx')) keep.shipsOwned.push('voidx');
+    return keep;
+  }
+
   const save: SaveData = {
     ...d,
     ...raw,
     v: SAVE_VERSION,
     shipUpgrades: emptyShipUpgrades(),
+    shipStars: { ...(raw.shipStars ?? {}) },
+    fusions: Array.isArray(raw.fusions) ? [...raw.fusions] : [],
     stats: { ...d.stats, ...(raw.stats ?? {}) },
     checkpoints: Array.isArray(raw.checkpoints) ? [...raw.checkpoints].sort((a, b) => a - b) : [],
     achievements: Array.isArray(raw.achievements) ? raw.achievements : [],
@@ -114,13 +156,13 @@ function migrate(raw: LegacySave): SaveData {
 export function loadSave(): SaveData {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return defaultSave();
-    const save = migrate(JSON.parse(raw) as LegacySave);
+    if (!raw) return applyTestMode(defaultSave());
+    const save = applyTestMode(migrate(JSON.parse(raw) as LegacySave));
     // фиксируем новую версию, чтобы разовые миграции не повторялись
     persist(save);
     return save;
   } catch {
-    return defaultSave();
+    return applyTestMode(defaultSave());
   }
 }
 

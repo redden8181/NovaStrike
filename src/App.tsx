@@ -1,10 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Home, Play, Volume2, VolumeX } from 'lucide-react';
-import type { GameMode, HudState, RunResult, SaveData, ShipId, UpgradeId } from './game/types';
+import type { BaseShipId, GameMode, HudState, RunResult, SaveData, ShipId, UpgradeId } from './game/types';
 import { loadSave, persist } from './game/storage';
 import { GameEngine } from './game/engine';
 import { sfx } from './game/audio';
-import { SHIP_MAP, shipUpgradesOf, upgradeCost, UPGRADE_MAP } from './game/content';
+import {
+  FUSION_COST,
+  MAX_STAR,
+  SHIP_MAP,
+  TEST_MODE,
+  capOf,
+  fusionId,
+  isFullyUpgraded,
+  resolveShip,
+  shipUpgradesOf,
+  starOf,
+  starUpCost,
+  upgradeCost,
+} from './game/content';
+import { Info } from './ui/Info';
 import { isModeUnlocked, MODE_MAP } from './game/modes';
 import { Hud } from './ui/Hud';
 import { Menu } from './ui/Menu';
@@ -14,7 +28,7 @@ import { Upgrades } from './ui/Upgrades';
 import { Ships } from './ui/Ships';
 import { Achievements } from './ui/Achievements';
 
-type Screen = 'menu' | 'game' | 'gameover' | 'upgrades' | 'ships' | 'achievements' | 'modes';
+type Screen = 'menu' | 'game' | 'gameover' | 'upgrades' | 'ships' | 'achievements' | 'modes' | 'info';
 
 export default function App() {
   const [save, setSave] = useState<SaveData>(loadSave);
@@ -93,7 +107,9 @@ export default function App() {
       const ship = cur.ship;
       const lvl = shipUpgradesOf(cur, ship)[id];
       const cost = upgradeCost(id, lvl);
-      if (lvl >= UPGRADE_MAP[id].max || cur.coins < cost) return;
+      // лимит зависит от корпуса и его ранга
+      if (lvl >= capOf(resolveShip(cur, ship), id, starOf(cur, ship))) return;
+      if (!TEST_MODE && cur.coins < cost) return;
       sfx.unlock();
       sfx.play('powerup');
       // прокачка принадлежит конкретному кораблю
@@ -122,12 +138,83 @@ export default function App() {
     (id: ShipId) => {
       const cur = saveRef.current;
       const def = SHIP_MAP[id];
-      if (cur.shipsOwned.includes(id) || cur.coins < def.cost) return;
-      if (def.requiresUnlock && !cur.unlocks.includes(def.requiresUnlock)) return;
-      if (def.requires > 0 && (cur.checkpoints.length ? Math.max(...cur.checkpoints) : 0) < def.requires) return;
+      if (cur.shipsOwned.includes(id)) return;
+      if (!TEST_MODE) {
+        if (cur.coins < def.cost) return;
+        if (def.requiresUnlock && !cur.unlocks.includes(def.requiresUnlock)) return;
+        if (def.requires > 0 && (cur.checkpoints.length ? Math.max(...cur.checkpoints) : 0) < def.requires) return;
+      }
       sfx.unlock();
       sfx.play('powerup');
-      commit((s) => ({ ...s, coins: s.coins - def.cost, shipsOwned: [...s.shipsOwned, id], ship: id }));
+      commit((s) => ({
+        ...s,
+        coins: TEST_MODE ? s.coins : s.coins - def.cost,
+        shipsOwned: [...s.shipsOwned, id],
+        ship: id,
+      }));
+    },
+    [commit],
+  );
+
+  /** Повышение ранга корпуса: сбрасывает прокачку? Нет — только поднимает лимиты. */
+  const starUp = useCallback(() => {
+    const cur = saveRef.current;
+    const id = cur.ship;
+    const star = starOf(cur, id);
+    if (star >= MAX_STAR) return;
+    if (!isFullyUpgraded(cur, id)) return;
+    const cost = starUpCost(star);
+    if (!TEST_MODE && cur.coins < cost) return;
+    sfx.unlock();
+    sfx.play('checkpoint');
+    commit((s) => ({
+      ...s,
+      coins: TEST_MODE ? s.coins : s.coins - cost,
+      shipStars: { ...s.shipStars, [id]: star + 1 },
+    }));
+  }, [commit]);
+
+  /** Слияние двух полностью прокачанных корпусов в гибрид. */
+  const fuseShips = useCallback(
+    (a: BaseShipId, b: BaseShipId) => {
+      const cur = saveRef.current;
+      if (a === b) return;
+      if (!TEST_MODE) {
+        if (cur.coins < FUSION_COST) return;
+        if (!isFullyUpgraded(cur, a) || !isFullyUpgraded(cur, b)) return;
+      }
+      const id = fusionId(a, b);
+      if (cur.fusions?.some((f) => f.id === id)) return;
+      sfx.unlock();
+      sfx.play('powerup');
+      commit((s) => ({
+        ...s,
+        coins: TEST_MODE ? s.coins : s.coins - FUSION_COST,
+        fusions: [...(s.fusions ?? []), { id, a, b }],
+        ship: id,
+      }));
+    },
+    [commit],
+  );
+
+  /** Разбор гибрида — компоненты остаются, прокачка самого гибрида теряется. */
+  const unfuseShip = useCallback(
+    (id: ShipId) => {
+      sfx.play('ui');
+      commit((s) => {
+        const rest = (s.fusions ?? []).filter((f) => f.id !== id);
+        const upgrades = { ...s.shipUpgrades };
+        delete upgrades[id];
+        const stars = { ...s.shipStars };
+        delete stars[id];
+        return {
+          ...s,
+          fusions: rest,
+          shipUpgrades: upgrades,
+          shipStars: stars,
+          ship: s.ship === id ? 'falcon' : s.ship,
+        };
+      });
     },
     [commit],
   );
@@ -223,9 +310,21 @@ export default function App() {
           onBack={() => setScreen(backTo)}
         />
       )}
-      {screen === 'upgrades' && <Upgrades save={save} onBack={() => setScreen(backTo)} onBuy={buyUpgrade} />}
-      {screen === 'ships' && <Ships save={save} onBack={() => setScreen(backTo)} onSelect={selectShip} onBuy={buyShip} />}
+      {screen === 'upgrades' && (
+        <Upgrades save={save} onBack={() => setScreen(backTo)} onBuy={buyUpgrade} onStarUp={starUp} />
+      )}
+      {screen === 'ships' && (
+        <Ships
+          save={save}
+          onBack={() => setScreen(backTo)}
+          onSelect={selectShip}
+          onBuy={buyShip}
+          onFuse={fuseShips}
+          onUnfuse={unfuseShip}
+        />
+      )}
       {screen === 'achievements' && <Achievements save={save} onBack={() => setScreen(backTo)} />}
+      {screen === 'info' && <Info onBack={() => setScreen(backTo)} />}
     </div>
   );
 }

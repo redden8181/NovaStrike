@@ -7,11 +7,14 @@ import {
   RANKS,
   ROLLBACK,
   POWERUP_MAP,
-  SHIP_MAP,
   TECHS,
   TRACKS,
   VOID_DRIVE_TIERS,
+  abilityOf,
+  resolveShip,
   shipUpgradesOf,
+  starOf,
+  starRank,
   trackReached,
   trackValue,
   voidDriveBonus,
@@ -223,8 +226,11 @@ export class GameEngine {
   private turretDmg = 0;
   private turretRate = 1.6;
   private turretStreams = 1;
-  private turretT = 0;
   private turretFlash = 0;
+  private turretAngL = Math.PI / 2;
+  private turretAngR = Math.PI / 2;
+  private turretTL = 0;
+  private turretTR = 0;
   // платный откат угрозы
   private rollbackT = 0;
   private diffOffset = 0;
@@ -478,8 +484,18 @@ export class GameEngine {
     this.rng = this.daily ? makeRng(this.daily.seed) : Math.random;
 
     this.shipId = save.ship;
-    const ship = SHIP_MAP[save.ship] ?? SHIP_MAP.falcon;
-    const mods = ship.mods;
+    const ship = resolveShip(save, save.ship);
+    // ранг корпуса усиливает все характеристики
+    const sm = starRank(starOf(save, save.ship)).statMul;
+    const base = ship.mods;
+    const mods = {
+      speed: base.speed * sm,
+      rate: base.rate * sm,
+      damage: base.damage * sm,
+      hp: Math.round(base.hp * sm),
+      armor: Math.round(base.armor * sm),
+      streams: base.streams,
+    };
     // прокачка берётся у конкретного корпуса — у каждого своя
     const up = shipUpgradesOf(save, save.ship);
     this.techLevel = up.tech;
@@ -504,8 +520,11 @@ export class GameEngine {
     this.turretDmg = this.damage * (0.34 + 0.2 * up.turretPower);
     this.turretRate = 1.6 * (1 + 0.2 * up.turretRate);
     this.turretStreams = 1 + up.turretStreams;
-    this.turretT = 0;
     this.turretFlash = 0;
+    this.turretAngL = Math.PI / 2 - 0.5;
+    this.turretAngR = Math.PI / 2 + 0.5;
+    this.turretTL = 0;
+    this.turretTR = 0;
     this.rollbackT = 0;
     this.diffOffset = 0;
     this.hitFx = 0;
@@ -516,7 +535,7 @@ export class GameEngine {
     this.scoreMul = this.modeDef.scoreMul * (this.daily?.scoreMul ?? 1);
     this.coinMul = this.modeDef.coinMul * (this.daily?.coinMul ?? 1);
 
-    this.ability.reset(ABILITIES[ship.ability]);
+    this.ability.reset(abilityOf(ship));
     this.synergy.reset();
 
     this.startCp = this.modeDef.allowCheckpoints ? config.startCheckpoint : 0;
@@ -835,11 +854,11 @@ export class GameEngine {
     this.updateEnemies(dt, dying);
     this.updateTechEffects(dt);
     // «Крепость» непрерывно гасит снаряды, попавшие в поле
-    if (this.ability.isActive && this.ability.def.id === 'fortress') {
+    if (this.abilityActive('fortress')) {
       if (this.clearBulletsNear(this.px, this.py, 44 * this.u, '#34d399') > 0) sfx.play('shieldHit');
     }
     // луч «Новы» испаряет всё в своей колонне
-    if (this.ability.isActive && this.ability.def.id === 'novabeam') {
+    if (this.abilityActive('novabeam')) {
       for (let i = this.eBullets.length - 1; i >= 0; i--) {
         const b = this.eBullets[i];
         if (b.y > this.py || Math.abs(b.x - this.px) > 20 * this.u) continue;
@@ -869,8 +888,20 @@ export class GameEngine {
     if (def.charge === 0) this.shake = Math.min(1, this.shake + 0.2);
   }
 
+  /** Активна ли конкретная способность (с учётом слитых гибридных). */
+  private abilityActive(id: AbilityDef['id']): boolean {
+    if (!this.ability.isActive) return false;
+    const def = this.ability.def;
+    return def.parts ? def.parts.includes(id) : def.id === id;
+  }
+
   private onAbilityFire(def: AbilityDef) {
-    switch (def.id) {
+    // у гибрида срабатывают эффекты обеих родительских способностей
+    for (const id of def.parts ?? [def.id]) this.fireAbilityEffect(id);
+  }
+
+  private fireAbilityEffect(id: AbilityDef['id']) {
+    switch (id) {
       case 'dash': {
         const dx = this.tx - this.px;
         const dy = this.ty - this.py;
@@ -909,7 +940,8 @@ export class GameEngine {
   }
 
   private onAbilityEnd(def: AbilityDef) {
-    if (def.id === 'dash') {
+    const ids = def.parts ?? [def.id];
+    if (ids.includes('dash')) {
       // ударная волна на выходе + запас неуязвимости, чтобы успеть выйти из-под огня
       this.clearBulletsNear(this.px, this.py, 150 * this.u, '#a5f3fc');
       this.burst(this.px, this.py, '#a5f3fc', 20, 260);
@@ -1027,7 +1059,7 @@ export class GameEngine {
     this.py += (this.ty - this.py) * ky;
 
     // dash impulse rides on top of the follow motion
-    if (this.ability.isActive && this.ability.def.id === 'dash') {
+    if (this.abilityActive('dash')) {
       this.px = clamp(this.px + this.dashVX * dt, 16 * this.u, this.w - 16 * this.u);
       this.py = clamp(this.py + this.dashVY * dt, this.h * 0.16, this.h * 0.95);
       this.addPart(
@@ -1048,7 +1080,7 @@ export class GameEngine {
     this.playerPos.x = this.px;
     this.playerPos.y = this.py;
 
-    const burn = this.ability.isActive && this.ability.def.id === 'afterburner';
+    const burn = this.abilityActive('afterburner');
     this.emitTrail(dt, (burn ? 1.6 : 0.55) + clamp(Math.abs(vx) / 400, 0, 0.6));
 
     this.updateFire(dt);
@@ -1252,7 +1284,7 @@ export class GameEngine {
 
   private emitTrail(dt: number, power: number) {
     if (Math.random() < dt * 90 * power) {
-      const burn = this.ability.isActive && this.ability.def.id === 'afterburner';
+      const burn = this.abilityActive('afterburner');
       this.addPart(
         this.px + (Math.random() * 2 - 1) * 3 * this.u,
         this.py + 16 * this.u,
@@ -1330,7 +1362,7 @@ export class GameEngine {
 
   /** NOVA BEAM ability — continuous lance in front of the ship. */
   private updateBeam(dt: number) {
-    const active = this.ability.isActive && this.ability.def.id === 'novabeam';
+    const active = this.abilityActive('novabeam');
     if (!active) {
       this.beamT = 0;
       return;
@@ -1364,13 +1396,15 @@ export class GameEngine {
     for (let i = this.pBullets.length - 1; i >= 0; i--) {
       const b = this.pBullets[i];
       b.life += dt;
-      // ракеты сами доводятся до ближайшей цели
-      if (b.kind === 1) {
+      // kind 1 — ракета, kind 4 — снаряд турели: оба идут за целью
+      if (b.kind === 1 || b.kind === 4) {
+        const turret = b.kind === 4;
         let tx = -1;
         let ty = -1;
         let bestD = Infinity;
         for (const e of this.enemies) {
-          if (e.y > b.y + 40) continue;
+          // ракета бьёт вперёд, турель — во все стороны
+          if (!turret && e.y > b.y + 40) continue;
           const d = dist2(b.x, b.y, e.x, e.y);
           if (d < bestD) {
             bestD = d;
@@ -1386,14 +1420,23 @@ export class GameEngine {
           const dx = tx - b.x;
           const dy = ty - b.y;
           const len = Math.hypot(dx, dy) || 1;
-          const sp = Math.min(900 * this.u, Math.hypot(b.vx, b.vy) + 900 * this.u * dt);
-          b.vx = lerp(b.vx, (dx / len) * sp, clamp(dt * 5.5, 0, 1));
-          b.vy = lerp(b.vy, (dy / len) * sp, clamp(dt * 5.5, 0, 1));
-        } else {
+          const maxSp = turret ? 700 * this.u : 900 * this.u;
+          const sp = Math.min(maxSp, Math.hypot(b.vx, b.vy) + 700 * this.u * dt);
+          const turn = turret ? 4 : 5.5;
+          b.vx = lerp(b.vx, (dx / len) * sp, clamp(dt * turn, 0, 1));
+          b.vy = lerp(b.vy, (dy / len) * sp, clamp(dt * turn, 0, 1));
+        } else if (!turret) {
           b.vy -= 500 * this.u * dt;
         }
-        if (Math.random() < dt * 50) {
-          this.addPart(b.x, b.y, 0, 60 * this.u, 0.28, 7 * this.u, '#67e8f9', 1.4, 0);
+        // снаряд турели живёт ограниченное время, иначе кружит вечно
+        if (turret && b.life > 2.4) {
+          this.burst(b.x, b.y, '#fbbf24', 3, 70);
+          this.freePB.push(b);
+          this.pBullets.splice(i, 1);
+          continue;
+        }
+        if (Math.random() < dt * (turret ? 26 : 50)) {
+          this.addPart(b.x, b.y, 0, 40 * this.u, 0.24, (turret ? 5 : 7) * this.u, b.color, 1.4, 0);
         }
       }
       b.x += b.vx * dt;
@@ -1541,55 +1584,94 @@ export class GameEngine {
     this.emitHud();
   }
 
-  // ── боковые турели: бьют назад, по тем, кто уже прорвался ─────────────────
+  /** Точка крепления турели на корпусе. */
+  private turretMount(side: number): { x: number; y: number } {
+    return { x: this.px + side * 19 * this.u, y: this.py + 5 * this.u };
+  }
+
+  /**
+   * Боковые турели прикрывают борта и корму — весь сектор, куда не бьёт
+   * носовое орудие. Стволы доворачиваются плавно, снаряды летят по стволу
+   * с небольшим разбросом, поэтому попадание не гарантировано.
+   */
   private updateTurrets(dt: number) {
     if (this.phase !== 'playing') return;
     if (!this.turretL && !this.turretR) return;
-    this.turretFlash = Math.max(0, this.turretFlash - dt * 6);
-    this.turretT -= dt;
-    if (this.turretT > 0) return;
-    this.turretT = 1 / Math.max(0.3, this.turretRate);
+    this.turretFlash = Math.max(0, this.turretFlash - dt * 5);
 
-    const sides: number[] = [];
-    if (this.turretL) sides.push(-1);
-    if (this.turretR) sides.push(1);
+    const range = 340 * this.u;
+    const range2 = range * range;
 
-    for (const side of sides) {
-      const tx = this.px + side * 24 * this.u;
-      const ty = this.py + 8 * this.u;
-      // ищем цель позади (ниже) корабля
-      let bestX = tx + side * 40 * this.u;
-      let bestY = this.h + 60;
+    for (let s = 0; s < 2; s++) {
+      const side = s === 0 ? -1 : 1;
+      if (side < 0 ? !this.turretL : !this.turretR) continue;
+      const mount = this.turretMount(side);
+
+      // цель: ближайший враг в своей полусфере, носовую зону не трогаем
+      let bestA = 0;
       let bestD = Infinity;
       for (const e of this.enemies) {
-        if (e.y < this.py - 6 * this.u) continue;
-        const d = dist2(e.x, e.y, tx, ty);
-        if (d < bestD) {
-          bestD = d;
-          bestX = e.x;
-          bestY = e.y;
+        const dx = e.x - mount.x;
+        const dy = e.y - mount.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 > range2) continue;
+        // приоритет своей стороне и всему, что ниже носа
+        const ownSide = dx * side >= -24 * this.u;
+        if (!ownSide && dy < 0) continue;
+        if (d2 < bestD) {
+          bestD = d2;
+          bestA = Math.atan2(dy, dx);
         }
       }
-      const hasTarget = bestD < Infinity;
-      const base = hasTarget ? Math.atan2(bestY - ty, bestX - tx) : Math.PI / 2 + side * 0.25;
-      const n = this.turretStreams;
+
+      const idle = Math.PI / 2 + side * 0.5; // в покое смотрит вниз-наружу
+      const want = bestD < Infinity ? bestA : idle;
+      // плавный доворот по кратчайшей дуге
+      const curA = side < 0 ? this.turretAngL : this.turretAngR;
+      let diff = want - curA;
+      while (diff > Math.PI) diff -= TAU;
+      while (diff < -Math.PI) diff += TAU;
+      const next = curA + diff * clamp(dt * 7, 0, 1);
+      if (side < 0) this.turretAngL = next;
+      else this.turretAngR = next;
+
+      if (bestD === Infinity) continue;
+
+      // независимый таймер на каждую турель
+      const cd = 1 / Math.max(0.3, this.turretRate);
+      if (side < 0) {
+        this.turretTL -= dt;
+        if (this.turretTL > 0) continue;
+        this.turretTL = cd;
+      } else {
+        this.turretTR -= dt;
+        if (this.turretTR > 0) continue;
+        this.turretTR = cd;
+      }
+      // стреляем, только когда ствол почти навёлся
+      if (Math.abs(diff) > 0.5) continue;
+
+        const n = this.turretStreams;
       for (let i = 0; i < n; i++) {
-        const a = base + (i - (n - 1) / 2) * 0.16;
+        const spread = (this.rng() - 0.5) * 0.12 + (i - (n - 1) / 2) * 0.14;
+        const a = next + spread;
+        const muzzle = 13 * this.u;
+        // kind 4 — самонаводящийся снаряд турели: догоняет цель, но мягче ракеты
         this.addPBullet(
-          tx,
-          ty,
-          Math.cos(a) * 620 * this.u,
-          Math.sin(a) * 620 * this.u,
+          mount.x + Math.cos(a) * muzzle,
+          mount.y + Math.sin(a) * muzzle,
+          Math.cos(a) * 520 * this.u,
+          Math.sin(a) * 520 * this.u,
           this.turretDmg * (1 + this.voidBonus),
-          3.4 * this.u,
+          3.2 * this.u,
           false,
-          0,
+          4,
           '#fbbf24',
         );
       }
+      this.turretFlash = 1;
+      if (side > 0 || !this.turretR) sfx.play('shoot');
     }
-    this.turretFlash = 1;
-    sfx.play('shoot');
   }
 
   /** Платная способность: откатывает уровень угрозы на один. */
@@ -1879,7 +1961,7 @@ export class GameEngine {
 
   /** VOID-X passive: damage grows while the pilot stays untouched. */
   private bumpVoidDrive() {
-    const ship = SHIP_MAP[this.shipId];
+    const ship = resolveShip(this.api.getSave(), this.shipId);
     if (!ship?.voidDrive) return;
     this.voidStreak += 1;
     const next = voidDriveBonus(this.voidStreak);
@@ -2539,7 +2621,7 @@ export class GameEngine {
     }
 
     // nova beam (behind the ship sprite)
-    if (this.ability.isActive && this.ability.def.id === 'novabeam') this.renderBeam(ctx);
+    if (this.abilityActive('novabeam')) this.renderBeam(ctx);
 
     if (this.phase !== 'over' && this.phase !== 'dying' && this.phase !== 'menu') this.renderPlayer(ctx);
 
@@ -2654,8 +2736,8 @@ export class GameEngine {
 
   private renderPlayer(ctx: CanvasRenderingContext2D) {
     const blink = this.invuln > 0 && Math.floor(this.time * 14) % 2 === 0 && this.phase === 'playing';
-    const dashing = this.ability.isActive && this.ability.def.id === 'dash';
-    const fortress = this.ability.isActive && this.ability.def.id === 'fortress';
+    const dashing = this.abilityActive('dash');
+    const fortress = this.abilityActive('fortress');
     const charging = this.ability.isCharging;
 
     if (!blink || dashing) {
@@ -2676,26 +2758,74 @@ export class GameEngine {
       drawGlow(ctx, '#a5f3fc', this.px, this.py - 20 * this.u, 13 * this.u * (this.muzzleT / 0.05), 0.95, true);
     }
 
-    // боковые турели — видимые модули на корпусе
+    // боковые турели — обтекаемые модули, вросшие в корпус
     if (this.turretL || this.turretR) {
-      const sides: number[] = [];
-      if (this.turretL) sides.push(-1);
-      if (this.turretR) sides.push(1);
-      for (const s of sides) {
-        const tx = this.px + s * 24 * this.u;
-        const ty = this.py + 8 * this.u;
-        drawGlow(ctx, '#fbbf24', tx, ty, 13 * this.u * (0.8 + this.turretFlash * 0.6), 0.75, true);
+      for (let s = 0; s < 2; s++) {
+        const side = s === 0 ? -1 : 1;
+        if (side < 0 ? !this.turretL : !this.turretR) continue;
+        const m = this.turretMount(side);
+        const ang = side < 0 ? this.turretAngL : this.turretAngR;
+        const U = this.u;
+
         ctx.save();
-        ctx.translate(tx, ty);
-        ctx.fillStyle = '#44403c';
-        ctx.fillRect(-3.6 * this.u, -3.6 * this.u, 7.2 * this.u, 7.2 * this.u);
+        ctx.translate(m.x, m.y);
+        ctx.rotate(this.bank);
+
+        // пилон, соединяющий турель с корпусом
+        const pg = ctx.createLinearGradient(-side * 10 * U, 0, side * 6 * U, 0);
+        pg.addColorStop(0, 'rgba(100,116,139,0.25)');
+        pg.addColorStop(1, '#475569');
+        ctx.fillStyle = pg;
+        ctx.beginPath();
+        ctx.moveTo(-side * 11 * U, -3.4 * U);
+        ctx.lineTo(side * 2 * U, -5 * U);
+        ctx.lineTo(side * 2 * U, 5 * U);
+        ctx.lineTo(-side * 11 * U, 3.4 * U);
+        ctx.closePath();
+        ctx.fill();
+
+        // вращающийся блок со стволами
+        ctx.rotate(ang - Math.PI / 2);
+        ctx.fillStyle = '#1c1917';
+        ctx.beginPath();
+        ctx.moveTo(-5.2 * U, -3 * U);
+        ctx.lineTo(5.2 * U, -3 * U);
+        ctx.lineTo(4 * U, 7 * U);
+        ctx.lineTo(-4 * U, 7 * U);
+        ctx.closePath();
+        ctx.fill();
+
+        const n = this.turretStreams;
+        for (let i = 0; i < n; i++) {
+          const bx = (i - (n - 1) / 2) * 3.6 * U;
+          ctx.fillStyle = '#57534e';
+          ctx.fillRect(bx - 1.1 * U, 4 * U, 2.2 * U, 9 * U);
+          ctx.fillStyle = this.turretFlash > 0.35 ? '#fde68a' : '#a8a29e';
+          ctx.fillRect(bx - 1.1 * U, 12 * U, 2.2 * U, 2 * U);
+        }
+
+        // корпус турели + подсветка
+        const bg = ctx.createRadialGradient(-1.5 * U, -1.5 * U, 0.5 * U, 0, 0, 7 * U);
+        bg.addColorStop(0, '#78716c');
+        bg.addColorStop(1, '#292524');
+        ctx.fillStyle = bg;
+        ctx.beginPath();
+        ctx.arc(0, 0, 6 * U, 0, TAU);
+        ctx.fill();
         ctx.strokeStyle = '#fbbf24';
-        ctx.lineWidth = 1.2;
-        ctx.strokeRect(-3.6 * this.u, -3.6 * this.u, 7.2 * this.u, 7.2 * this.u);
-        // ствол смотрит назад
-        ctx.fillStyle = this.turretFlash > 0.4 ? '#fde68a' : '#78716c';
-        ctx.fillRect(-1.5 * this.u, 2 * this.u, 3 * this.u, 9 * this.u);
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+        ctx.fillStyle = '#fde68a';
+        ctx.beginPath();
+        ctx.arc(0, 0, 2 * U, 0, TAU);
+        ctx.fill();
+
+        // дульная вспышка
+        if (this.turretFlash > 0.3) {
+          drawGlow(ctx, '#fbbf24', 0, 14 * U, 11 * U * this.turretFlash, this.turretFlash, true);
+        }
         ctx.restore();
+        drawGlow(ctx, 'rgba(251,191,36,0.4)', m.x, m.y, 15 * U, 0.5);
       }
     }
 
@@ -2739,7 +2869,7 @@ export class GameEngine {
     }
 
     // void collapse implosion ring
-    if (this.ability.isActive && this.ability.def.id === 'collapse') {
+    if (this.abilityActive('collapse')) {
       const k = 1 - this.ability.progress;
       ctx.save();
       ctx.globalAlpha = 0.75 * k;

@@ -2,7 +2,7 @@ import { CalendarDays, Flag, Infinity as InfinityIcon, Lock, Play, Skull, Swords
 import type { LucideIcon } from 'lucide-react';
 import type { GameMode, SaveData } from '../game/types';
 import { MODES, isModeUnlocked } from '../game/modes';
-import { MILESTONES } from '../game/content';
+import { MILESTONES, TEST_MODE } from '../game/content';
 import { buildDaily } from '../game/dailyRun';
 import { CoinChip, ScreenHeader } from './bits';
 import { cn } from '../utils/cn';
@@ -44,7 +44,7 @@ export function Modes({
       <div className="flex-1 overflow-y-auto px-4 pt-3 pb-6" style={{ touchAction: 'pan-y' }}>
         <div className="flex flex-col gap-2.5">
           {MODES.map((mode, idx) => {
-            const unlocked = isModeUnlocked(save, mode.id);
+            const unlocked = TEST_MODE || isModeUnlocked(save, mode.id);
             const Icon = MODE_ICON[mode.id];
             const best = mode.id === 'daily' ? save.daily.best : (save.bestByMode[mode.id] ?? 0);
             const req = mode.unlock ? unlockScoreFor(mode.unlock) : 0;

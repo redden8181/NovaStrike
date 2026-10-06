@@ -18,6 +18,8 @@ export interface AbilityDef {
   duration: number;
   /** wind-up before the effect fires */
   charge: number;
+  /** объединённая способность гибрида: эффекты обоих родителей сразу */
+  parts?: AbilityId[];
 }
 
 export const ABILITIES: Record<AbilityId, AbilityDef> = {
@@ -103,6 +105,38 @@ const ACTIVE_MODS: Record<AbilityId, Partial<AbilityModifiers>> = {
   novabeam: { speedMul: 0.85, fireRateMul: 0.45 },
   collapse: { speedMul: 1.1, invulnerable: true },
 };
+
+/** Короткое имя для слитой способности. */
+const FUSED_SHORT: Partial<Record<AbilityId, string>> = {
+  dash: 'РЫВОК',
+  afterburner: 'ФОРСАЖ',
+  fortress: 'КРЕПЬ',
+  novabeam: 'ЛУЧ',
+  collapse: 'РАЗРЫВ',
+};
+
+/**
+ * Собирает одну усиленную способность из двух родительских.
+ * Длительность и откат берутся по лучшему варианту, эффекты складываются.
+ */
+export function fuseAbilities(a: AbilityId, b: AbilityId): AbilityDef {
+  const A = ABILITIES[a];
+  const B = ABILITIES[b];
+  if (a === b) return { ...A, cooldown: Math.max(4, A.cooldown - 2), duration: A.duration * 1.35 };
+  return {
+    id: a,
+    parts: [a, b],
+    name: `${A.name} + ${B.name}`,
+    short: `${FUSED_SHORT[a] ?? A.short}·${FUSED_SHORT[b] ?? B.short}`,
+    desc: `Объединённый модуль: ${A.desc.toLowerCase().replace(/\.$/, '')}, и одновременно ${B.desc.toLowerCase()}`,
+    icon: A.icon,
+    color: B.color,
+    // слияние выгоднее по всем параметрам, чем любая исходная способность
+    cooldown: Math.max(5, Math.round((Math.min(A.cooldown, B.cooldown) - 1) * 10) / 10),
+    duration: Math.max(A.duration, B.duration) * 1.25,
+    charge: Math.min(A.charge, B.charge),
+  };
+}
 
 export interface AbilityEvents {
   /** wind-up (or immediate activation) began */
@@ -203,13 +237,18 @@ export class AbilityRuntime {
     m.invulnerable = false;
     m.phasing = false;
     if (this.phase !== 'active') return;
-    const src = ACTIVE_MODS[this.def.id];
-    if (src.speedMul !== undefined) m.speedMul = src.speedMul;
-    if (src.fireRateMul !== undefined) m.fireRateMul = src.fireRateMul;
-    if (src.damageMul !== undefined) m.damageMul = src.damageMul;
-    if (src.damageTakenMul !== undefined) m.damageTakenMul = src.damageTakenMul;
-    if (src.invulnerable !== undefined) m.invulnerable = src.invulnerable;
-    if (src.phasing !== undefined) m.phasing = src.phasing;
+    // у гибрида берём лучшее из обеих способностей
+    const ids = this.def.parts ?? [this.def.id];
+    for (const id of ids) {
+      const src = ACTIVE_MODS[id];
+      if (!src) continue;
+      if (src.speedMul !== undefined) m.speedMul = Math.max(m.speedMul, src.speedMul);
+      if (src.fireRateMul !== undefined) m.fireRateMul = Math.max(m.fireRateMul, src.fireRateMul);
+      if (src.damageMul !== undefined) m.damageMul = Math.max(m.damageMul, src.damageMul);
+      if (src.damageTakenMul !== undefined) m.damageTakenMul = Math.min(m.damageTakenMul, src.damageTakenMul);
+      if (src.invulnerable) m.invulnerable = true;
+      if (src.phasing) m.phasing = true;
+    }
   }
 
   modifiers(): AbilityModifiers {

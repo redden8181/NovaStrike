@@ -4,7 +4,7 @@
    - ассеты: stale-while-revalidate
    - при изменении sw.js (смените VERSION при релизе) все клиенты обновляются сами */
 
-const VERSION = 'nova-strike-v1.5.0';
+const VERSION = 'nova-strike-v1.8.1';
 const SHELL = [
   './',
   './index.html',

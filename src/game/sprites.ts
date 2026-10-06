@@ -46,6 +46,34 @@ export function drawGlow(
 
 // ── Player ships (drawn at origin, nose pointing -y) ─────────────────────────
 export function drawShip(ctx: CanvasRenderingContext2D, id: ShipId, t: number, thrust = 1) {
+  // гибрид: донор-корпус B идёт боковыми модулями, основа A — сверху
+  if (typeof id === 'string' && id.startsWith('fused:')) {
+    const [a, b] = id.slice(6).split('+') as [ShipId, ShipId];
+    for (const side of [-1, 1]) {
+      ctx.save();
+      ctx.translate(side * 11, 5);
+      ctx.scale(side * 0.52, 0.52);
+      ctx.globalAlpha = 0.95;
+      drawShipBase(ctx, b, t + side * 0.4, thrust * 0.8);
+      ctx.restore();
+    }
+    // шов энергии между корпусами
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'rgba(165,243,252,0.5)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-11, 4);
+    ctx.lineTo(11, 4);
+    ctx.stroke();
+    ctx.restore();
+    drawShipBase(ctx, a, t, thrust);
+    return;
+  }
+  drawShipBase(ctx, id, t, thrust);
+}
+
+function drawShipBase(ctx: CanvasRenderingContext2D, id: ShipId, t: number, thrust: number) {
   switch (id) {
     case 'falcon':
       shipFalcon(ctx, t, thrust);

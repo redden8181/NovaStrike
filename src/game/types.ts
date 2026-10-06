@@ -16,7 +16,17 @@ export type UpgradeId =
   | 'turretPower'
   | 'turretRate'
   | 'turretStreams';
-export type ShipId = 'falcon' | 'comet' | 'titan' | 'nova' | 'voidx';
+export type BaseShipId = 'falcon' | 'comet' | 'titan' | 'nova' | 'voidx';
+/** Гибрид, полученный слиянием: `fused:falcon+titan` */
+export type FusedShipId = `fused:${string}`;
+export type ShipId = BaseShipId | FusedShipId;
+
+/** Запись о созданном гибриде. */
+export interface FusionRecord {
+  id: FusedShipId;
+  a: BaseShipId;
+  b: BaseShipId;
+}
 export type TechId = 'missiles' | 'lightning' | 'bombs' | 'drones' | 'singularity';
 export type EnemyKind = 'scout' | 'weaver' | 'gunner' | 'diver' | 'tank';
 export type GameMode = 'classic' | 'endless' | 'bossrush' | 'hardcore' | 'daily';
@@ -51,8 +61,12 @@ export interface SaveData {
   best: number;
   coins: number;
   muted: boolean;
-  /** прокачка отдельно для каждого корабля */
-  shipUpgrades: Record<ShipId, ShipUpgrades>;
+  /** прокачка отдельно для каждого корабля (ключ — ShipId) */
+  shipUpgrades: Record<string, ShipUpgrades>;
+  /** ранг корпуса: 0 — стандарт, 1-3 звёзды, 4 алмаз, 5 легенда */
+  shipStars: Record<string, number>;
+  /** созданные гибриды */
+  fusions: FusionRecord[];
   /** достигнутые пороги счёта (точки старта + долгие разблокировки) */
   checkpoints: number[];
   ship: ShipId;
