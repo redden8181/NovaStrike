@@ -1,4 +1,18 @@
-import { Activity, Columns2, Columns3, Flame, HeartPulse, Magnet, Pause, Shield, Sparkles, Wind, Zap } from 'lucide-react';
+import {
+  Activity,
+  Columns2,
+  Columns3,
+  Flame,
+  HeartPulse,
+  Magnet,
+  Pause,
+  RotateCcw,
+  Shield,
+  ShieldHalf,
+  Sparkles,
+  Wind,
+  Zap,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AbilityHud, HudState, PowerupType } from '../game/types';
 import type { AbilityIcon } from '../game/abilities';
@@ -87,9 +101,21 @@ function AbilityButton({ ability, onFire }: { ability: AbilityHud; onFire: () =>
   );
 }
 
-export function Hud({ hud, onPause, onAbility }: { hud: HudState; onPause: () => void; onAbility: () => void }) {
+export function Hud({
+  hud,
+  onPause,
+  onAbility,
+  onRollback,
+}: {
+  hud: HudState;
+  onPause: () => void;
+  onAbility: () => void;
+  onRollback: () => void;
+}) {
   const bossK = hud.boss ? hud.boss.hp / hud.boss.max : 0;
   const hardcore = hud.mode === 'hardcore';
+  const hpK = hud.maxHp > 0 ? hud.hp / hud.maxHp : 0;
+  const rollbackUsable = hud.rollbackReady && hud.canAffordRollback && hud.level > 1;
 
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
@@ -152,21 +178,37 @@ export function Hud({ hud, onPause, onAbility }: { hud: HudState; onPause: () =>
           </div>
         </div>
 
-        {/* прочность + щит + двигатель Бездны */}
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {Array.from({ length: Math.min(hud.maxHp, 10) }).map((_, i) => (
-            <span
-              key={i}
-              className={cn(
-                'inline-block h-2 w-3.5 -skew-x-12 rounded-[2px] transition-all duration-200',
-                i < hud.hp
-                  ? hardcore
-                    ? 'bg-rose-400 shadow-[0_0_8px_rgba(248,113,113,0.9)]'
-                    : 'bg-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.9)]'
-                  : 'bg-white/12',
-              )}
+        {/* полоса прочности с числами */}
+        <div className="mt-2">
+          <div className="glass relative h-[18px] w-full overflow-hidden rounded-full p-[2px]">
+            <div
+              className="h-full rounded-full transition-all duration-200"
+              style={{
+                width: `${Math.max(0, Math.min(1, hud.hp / hud.maxHp)) * 100}%`,
+                background:
+                  hpK > 0.5
+                    ? 'linear-gradient(90deg,#22d3ee,#4ade80)'
+                    : hpK > 0.25
+                      ? 'linear-gradient(90deg,#fbbf24,#fb923c)'
+                      : 'linear-gradient(90deg,#ef4444,#f87171)',
+                boxShadow: `0 0 12px ${hpK > 0.5 ? 'rgba(34,211,238,0.7)' : hpK > 0.25 ? 'rgba(251,191,36,0.7)' : 'rgba(239,68,68,0.8)'}`,
+              }}
             />
-          ))}
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-between px-2.5">
+              <span className="num text-[10px] font-black text-white/95 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                {hud.hp} / {hud.maxHp}
+              </span>
+              {hud.armor > 0 && (
+                <span className="num flex items-center gap-0.5 text-[9px] font-black text-sky-100 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                  <ShieldHalf size={9} strokeWidth={3} />
+                  {hud.armor}%
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {hud.shielded && (
             <span className="flex items-center gap-1 rounded-full bg-cyan-400/15 px-2 py-0.5 text-[9px] font-extrabold tracking-[0.16em] text-cyan-200">
               <Shield size={10} strokeWidth={2.8} />
@@ -264,7 +306,54 @@ export function Hud({ hud, onPause, onAbility }: { hud: HudState; onPause: () =>
       {/* способность — большая кнопка под большой палец, в стороне от зоны драга */}
       {hud.ability && (
         <div className="safe-bottom absolute right-4 bottom-0">
-          <div className="pb-5">
+          <div className="flex flex-col items-center gap-2.5 pb-5">
+            {/* платный откат уровня угрозы */}
+            <button
+              type="button"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onRollback();
+              }}
+              className={cn(
+                'btn pointer-events-auto relative flex h-[58px] w-[58px] flex-col items-center justify-center rounded-full',
+                rollbackUsable && 'animate-pulse-soft',
+              )}
+              style={{
+                background: rollbackUsable
+                  ? 'radial-gradient(circle at 50% 40%, #38bdf844, rgba(6,10,20,0.85))'
+                  : 'rgba(6,10,20,0.72)',
+                border: `1.5px solid ${rollbackUsable ? '#38bdf8' : 'rgba(148,180,255,0.2)'}`,
+                boxShadow: rollbackUsable ? '0 0 18px #38bdf866' : '0 4px 14px rgba(0,0,0,0.45)',
+              }}
+              aria-label="Откатить уровень угрозы"
+            >
+              <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100">
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="45"
+                  fill="none"
+                  stroke="#38bdf8"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeDasharray={`${(hud.rollbackReady ? 1 : 1 - hud.rollbackLeft / 60) * 283} 283`}
+                  opacity={hud.rollbackReady ? 0.85 : 0.6}
+                />
+              </svg>
+              <RotateCcw
+                size={16}
+                strokeWidth={2.6}
+                style={{ color: rollbackUsable ? '#7dd3fc' : '#64748b' }}
+              />
+              <span
+                className="num mt-0.5 text-[8.5px] leading-none font-black"
+                style={{ color: rollbackUsable ? '#7dd3fc' : '#64748b' }}
+              >
+                {hud.rollbackReady ? hud.rollbackCost : `${Math.ceil(hud.rollbackLeft)}с`}
+              </span>
+            </button>
+
             <AbilityButton ability={hud.ability} onFire={onAbility} />
           </div>
         </div>

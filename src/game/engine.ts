@@ -2,8 +2,10 @@ import {
   ACHIEVEMENT_MAP,
   ENEMIES,
   MILESTONES,
+  DAMAGE,
   POWERUPS,
   RANKS,
+  ROLLBACK,
   POWERUP_MAP,
   SHIP_MAP,
   TECHS,
@@ -210,8 +212,22 @@ export class GameEngine {
   private fireRate = 4;
   private damage = 1;
   private streamsBase = 1;
-  private maxHp = 3;
-  private hp = 3;
+  private maxHp = 100;
+  private hp = 100;
+  /** снижение урона, % */
+  private armor = 0;
+  private hitFx = 0;
+  // боковые турели
+  private turretL = false;
+  private turretR = false;
+  private turretDmg = 0;
+  private turretRate = 1.6;
+  private turretStreams = 1;
+  private turretT = 0;
+  private turretFlash = 0;
+  // платный откат угрозы
+  private rollbackT = 0;
+  private diffOffset = 0;
   private shieldDur = 7;
   private magnetR = 62;
   private magnetRBig = 260;
@@ -472,11 +488,27 @@ export class GameEngine {
     this.arcs.length = 0;
     this.vortex = null;
     this.fireRate = 4.1 * (1 + 0.22 * up.rate) * mods.rate;
-    this.damage = 1 * (1 + 0.4 * up.power) * mods.damage;
+    this.damage = 1 * (1 + 0.18 * up.power) * mods.damage;
     this.streamsBase = 1 + up.streams + mods.streams;
-    this.maxHp = Math.max(1, 3 + up.hull + mods.hull);
-    if (this.modeDef.oneLife || this.daily?.oneHp) this.maxHp = 1;
+    // ── числовое HP вместо «жизней» ──
+    this.maxHp = Math.round(mods.hp + 25 * up.hull);
+    this.armor = Math.min(DAMAGE.armorCap, mods.armor + 4 * up.armor);
+    if (this.modeDef.oneLife || this.daily?.oneHp) {
+      this.maxHp = Math.max(10, Math.round(mods.hp * 0.1));
+      this.armor = mods.armor;
+    }
     this.hp = this.maxHp;
+    // боковые турели
+    this.turretL = up.turretL > 0;
+    this.turretR = up.turretR > 0;
+    this.turretDmg = this.damage * (0.34 + 0.2 * up.turretPower);
+    this.turretRate = 1.6 * (1 + 0.2 * up.turretRate);
+    this.turretStreams = 1 + up.turretStreams;
+    this.turretT = 0;
+    this.turretFlash = 0;
+    this.rollbackT = 0;
+    this.diffOffset = 0;
+    this.hitFx = 0;
     this.shieldDur = 7 + 1.5 * up.shield;
     this.magnetR = 62 * (1 + 0.5 * up.magnet);
     this.magnetRBig = 260 * (1 + 0.25 * up.magnet);
@@ -707,7 +739,8 @@ export class GameEngine {
     // прогресс ускоряется на больших счетах, но плавно (sqrt-добавка после 45k)
     const base = this.score / 3000 + this.runTime / 280;
     const late = Math.sqrt(Math.max(0, this.score - 45000) / 14000);
-    const c = (base + late) * mul;
+    // diffOffset — купленные откаты угрозы
+    const c = Math.max(0, (base + late) * mul - this.diffOffset);
     const d = this.d;
     d.c = c;
     d.level = clamp(1 + Math.floor(c), 1, 20);
@@ -1019,9 +1052,12 @@ export class GameEngine {
     this.emitTrail(dt, (burn ? 1.6 : 0.55) + clamp(Math.abs(vx) / 400, 0, 0.6));
 
     this.updateFire(dt);
+    this.updateTurrets(dt);
     this.updateBeam(dt);
     this.updateNovaBurst(dt);
     this.updateTech(dt);
+    if (this.rollbackT > 0) this.rollbackT = Math.max(0, this.rollbackT - dt);
+    this.hitFx = Math.max(0, this.hitFx - dt * 2.4);
   }
 
   // ── уникальная техника корпуса ─────────────────────────────────────────────
@@ -1436,7 +1472,7 @@ export class GameEngine {
         if (this.invuln <= 0 && !this.ability.modifiers().invulnerable) {
           this.freeEB.push(b);
           this.eBullets.splice(i, 1);
-          this.damagePlayer();
+          this.damagePlayer(DAMAGE.bullet);
         }
       }
     }
@@ -1466,7 +1502,12 @@ export class GameEngine {
     if (died) this.startBossDeath();
   }
 
-  private damagePlayer() {
+  /**
+   * Единая точка урона по игроку.
+   * raw — базовый урон (DAMAGE.*), броня и «Крепость» снижают его,
+   * щит поглощает полностью.
+   */
+  private damagePlayer(raw: number = DAMAGE.bullet) {
     if (this.phase === 'dying') return;
     const am = this.ability.modifiers();
     if (am.invulnerable) return;
@@ -1476,26 +1517,104 @@ export class GameEngine {
       this.shake = Math.min(1, this.shake + 0.15);
       return;
     }
-    // FORTRESS soaks most of the hit instead of losing integrity
-    if (am.damageTakenMul < 0.5 && this.rng() > am.damageTakenMul * 2) {
-      this.rippleT = 1;
-      this.burst(this.px, this.py, '#34d399', 10, 180);
-      sfx.play('shieldHit');
-      this.shake = Math.min(1, this.shake + 0.2);
-      this.invuln = 0.35;
-      return;
-    }
-    this.hp -= 1;
-    this.invuln = 1.25;
-    this.hurtFlash = 1;
-    this.shake = Math.min(1, this.shake + 0.6);
-    this.burst(this.px, this.py, '#fb7185', 14, 220);
+    // броня корпуса + «Крепость»
+    const reduction = Math.min(DAMAGE.armorCap, this.armor) / 100;
+    let dmg = raw * (1 - reduction) * am.damageTakenMul;
+    dmg = Math.max(1, Math.round(dmg));
+    this.hp -= dmg;
+
+    // i-frames короче при мелком уроне — иначе броня давала бы двойную выгоду
+    this.invuln = raw >= DAMAGE.crash ? 0.85 : 0.5;
+    this.hurtFlash = Math.min(1, 0.35 + dmg / Math.max(30, this.maxHp * 0.4));
+    this.shake = Math.min(1, this.shake + 0.25 + dmg / 120);
+    this.hitFx = 1;
+    this.burst(this.px, this.py, '#fb7185', 10, 200);
+    this.addFloat(this.px + 18 * this.u, this.py - 24 * this.u, `-${dmg}`, '#fb7185', 13);
     sfx.play('hurt');
-    // VOID DRIVE resets on damage
+    // VOID DRIVE сбрасывается при любом попадании
     this.voidStreak = 0;
     this.voidBonus = 0;
-    if (this.hp <= 0) this.startDeath();
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.startDeath();
+    }
     this.emitHud();
+  }
+
+  // ── боковые турели: бьют назад, по тем, кто уже прорвался ─────────────────
+  private updateTurrets(dt: number) {
+    if (this.phase !== 'playing') return;
+    if (!this.turretL && !this.turretR) return;
+    this.turretFlash = Math.max(0, this.turretFlash - dt * 6);
+    this.turretT -= dt;
+    if (this.turretT > 0) return;
+    this.turretT = 1 / Math.max(0.3, this.turretRate);
+
+    const sides: number[] = [];
+    if (this.turretL) sides.push(-1);
+    if (this.turretR) sides.push(1);
+
+    for (const side of sides) {
+      const tx = this.px + side * 24 * this.u;
+      const ty = this.py + 8 * this.u;
+      // ищем цель позади (ниже) корабля
+      let bestX = tx + side * 40 * this.u;
+      let bestY = this.h + 60;
+      let bestD = Infinity;
+      for (const e of this.enemies) {
+        if (e.y < this.py - 6 * this.u) continue;
+        const d = dist2(e.x, e.y, tx, ty);
+        if (d < bestD) {
+          bestD = d;
+          bestX = e.x;
+          bestY = e.y;
+        }
+      }
+      const hasTarget = bestD < Infinity;
+      const base = hasTarget ? Math.atan2(bestY - ty, bestX - tx) : Math.PI / 2 + side * 0.25;
+      const n = this.turretStreams;
+      for (let i = 0; i < n; i++) {
+        const a = base + (i - (n - 1) / 2) * 0.16;
+        this.addPBullet(
+          tx,
+          ty,
+          Math.cos(a) * 620 * this.u,
+          Math.sin(a) * 620 * this.u,
+          this.turretDmg * (1 + this.voidBonus),
+          3.4 * this.u,
+          false,
+          0,
+          '#fbbf24',
+        );
+      }
+    }
+    this.turretFlash = 1;
+    sfx.play('shoot');
+  }
+
+  /** Платная способность: откатывает уровень угрозы на один. */
+  rollbackThreat(): boolean {
+    if (this.phase !== 'playing' || this.paused) return false;
+    if (this.rollbackT > 0) return false;
+    const save = this.api.getSave();
+    if (save.coins < ROLLBACK.cost) return false;
+
+    this.api.commit((s) => ({ ...s, coins: Math.max(0, s.coins - ROLLBACK.cost) }));
+    this.rollbackT = ROLLBACK.cooldown;
+    this.diffOffset += 1;
+    this.updateDiff();
+    this.level = this.d.level;
+    this.levelBannered = this.d.level;
+
+    // визуально «сдувает» половину летящих снарядов — эффект должен читаться
+    this.clearBulletsNear(this.px, this.py, Math.max(this.w, this.h), '#38bdf8');
+    this.pushBanner('УГРОЗА ОТКАЧЕНА', `УРОВЕНЬ ${this.d.level} · −${ROLLBACK.cost} МОНЕТ`, '#38bdf8', 2.2);
+    this.explode(this.px, this.py, '#38bdf8', 26, 1.6);
+    this.shake = Math.min(1, this.shake + 0.5);
+    this.flashWhite = 0.4;
+    sfx.play('checkpoint');
+    this.emitHud();
+    return true;
   }
 
   private startDeath() {
@@ -1721,7 +1840,7 @@ export class GameEngine {
             this.enemies.splice(i, 1);
             this.pendKills += 1;
             this.runKills += 1;
-            this.damagePlayer();
+            this.damagePlayer(DAMAGE.crash);
             continue;
           }
         }
@@ -1810,13 +1929,14 @@ export class GameEngine {
     // lance contact damage
     const zone = bossLaserZone(b, this.u);
     if (zone && this.phase === 'playing' && Math.abs(this.px - zone.x) < zone.halfW + 10 * this.u && this.py > b.y) {
-      if (this.invuln <= 0 && !this.ability.modifiers().invulnerable) this.damagePlayer();
+      // лазер жжёт непрерывно — урон за секунду, а не разовый
+      if (this.invuln <= 0 && !this.ability.modifiers().invulnerable) this.damagePlayer(DAMAGE.laserPerSec * dt);
     }
 
     // ramming the hull
     if (b.state === 'fight' && this.invuln <= 0 && this.pw.shield <= 0 && !this.ability.modifiers().invulnerable) {
       if (Math.abs(this.px - b.x) < b.def.halfW * this.u * 0.8 && Math.abs(this.py - b.y) < 42 * this.u) {
-        this.damagePlayer();
+        this.damagePlayer(DAMAGE.bossCrash);
       }
     }
 
@@ -1852,8 +1972,10 @@ export class GameEngine {
     if (this.modeDef.bossRush) {
       // gauntlet: repair, reward, next wave
       if (this.hp < this.maxHp) {
-        this.hp += 1;
-        this.addFloat(this.px, this.py - 30 * this.u, '+1 КОРПУС', '#4ade80', 14);
+        const heal = Math.max(10, Math.round(this.maxHp * 0.4));
+        const before = this.hp;
+        this.hp = Math.min(this.maxHp, this.hp + heal);
+        this.addFloat(this.px, this.py - 30 * this.u, `+${Math.round(this.hp - before)} HP`, '#4ade80', 14);
       }
       this.dropPowerup(this.px + 40 * this.u, this.h * 0.3);
       this.rushGapT = 3.2;
@@ -1963,8 +2085,11 @@ export class GameEngine {
     // мгновенный ремонт корпуса
     if (def.instant) {
       if (this.hp < this.maxHp) {
-        this.hp += 1;
-        this.addFloat(p.x, p.y, '+1 КОРПУС', '#4ade80', 15);
+        // чинит 35% запаса прочности
+        const heal = Math.max(10, Math.round(this.maxHp * 0.35));
+        const before = this.hp;
+        this.hp = Math.min(this.maxHp, this.hp + heal);
+        this.addFloat(p.x, p.y, `+${Math.round(this.hp - before)} HP`, '#4ade80', 15);
         this.pushBanner('РЕМОНТ КОРПУСА', 'ЦЕЛОСТНОСТЬ ВОССТАНОВЛЕНА', '#4ade80', 1.4);
       } else {
         this.addScore(250);
@@ -2282,8 +2407,13 @@ export class GameEngine {
       score: Math.floor(this.score),
       best: Math.max(save.best, Math.floor(this.score)),
       coins: save.coins + this.pendCoins,
-      hp: this.hp,
+      hp: Math.max(0, Math.round(this.hp)),
       maxHp: this.maxHp,
+      armor: Math.round(this.armor),
+      rollbackReady: this.rollbackT <= 0,
+      rollbackLeft: this.rollbackT,
+      rollbackCost: ROLLBACK.cost,
+      canAffordRollback: save.coins + this.pendCoins >= ROLLBACK.cost,
       level: this.level,
       shielded: this.pw.shield > 0,
       powerups,
@@ -2546,6 +2676,29 @@ export class GameEngine {
       drawGlow(ctx, '#a5f3fc', this.px, this.py - 20 * this.u, 13 * this.u * (this.muzzleT / 0.05), 0.95, true);
     }
 
+    // боковые турели — видимые модули на корпусе
+    if (this.turretL || this.turretR) {
+      const sides: number[] = [];
+      if (this.turretL) sides.push(-1);
+      if (this.turretR) sides.push(1);
+      for (const s of sides) {
+        const tx = this.px + s * 24 * this.u;
+        const ty = this.py + 8 * this.u;
+        drawGlow(ctx, '#fbbf24', tx, ty, 13 * this.u * (0.8 + this.turretFlash * 0.6), 0.75, true);
+        ctx.save();
+        ctx.translate(tx, ty);
+        ctx.fillStyle = '#44403c';
+        ctx.fillRect(-3.6 * this.u, -3.6 * this.u, 7.2 * this.u, 7.2 * this.u);
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(-3.6 * this.u, -3.6 * this.u, 7.2 * this.u, 7.2 * this.u);
+        // ствол смотрит назад
+        ctx.fillStyle = this.turretFlash > 0.4 ? '#fde68a' : '#78716c';
+        ctx.fillRect(-1.5 * this.u, 2 * this.u, 3 * this.u, 9 * this.u);
+        ctx.restore();
+      }
+    }
+
     // beam charge-up
     if (charging) {
       const k = this.ability.progress;
@@ -2700,7 +2853,7 @@ export class GameEngine {
       ctx.restore();
     }
 
-    if (this.phase === 'playing' && this.hp === 1 && this.pw.shield <= 0) {
+    if (this.phase === 'playing' && this.hp / this.maxHp <= 0.25 && this.pw.shield <= 0) {
       ctx.save();
       ctx.globalAlpha = 0.1 + 0.07 * Math.sin(this.time * 5.5);
       const g = ctx.createRadialGradient(this.w / 2, this.h / 2, this.h * 0.24, this.w / 2, this.h / 2, this.h * 0.72);

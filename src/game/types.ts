@@ -2,7 +2,20 @@
 
 export type PowerupType = 'rapid' | 'double' | 'triple' | 'shield' | 'power' | 'magnet' | 'repair';
 /** 'tech' — слот уникальной техники корабля (у каждого корпуса своя) */
-export type UpgradeId = 'power' | 'rate' | 'streams' | 'hull' | 'shield' | 'magnet' | 'tech';
+export type UpgradeId =
+  | 'power'
+  | 'rate'
+  | 'streams'
+  | 'hull'
+  | 'armor'
+  | 'shield'
+  | 'magnet'
+  | 'tech'
+  | 'turretL'
+  | 'turretR'
+  | 'turretPower'
+  | 'turretRate'
+  | 'turretStreams';
 export type ShipId = 'falcon' | 'comet' | 'titan' | 'nova' | 'voidx';
 export type TechId = 'missiles' | 'lightning' | 'bombs' | 'drones' | 'singularity';
 export type EnemyKind = 'scout' | 'weaver' | 'gunner' | 'diver' | 'tank';
@@ -88,6 +101,13 @@ export interface HudState {
   coins: number;
   hp: number;
   maxHp: number;
+  /** снижение урона в процентах */
+  armor: number;
+  /** платный откат угрозы: готовность и цена */
+  rollbackReady: boolean;
+  rollbackLeft: number;
+  rollbackCost: number;
+  canAffordRollback: boolean;
   level: number;
   shielded: boolean;
   powerups: ActivePowerup[];

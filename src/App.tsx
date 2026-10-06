@@ -148,7 +148,12 @@ export default function App() {
       )}
 
       {screen === 'game' && hud && (
-        <Hud hud={hud} onPause={() => engineRef.current?.setPaused(true)} onAbility={() => engineRef.current?.activateAbility()} />
+        <Hud
+          hud={hud}
+          onPause={() => engineRef.current?.setPaused(true)}
+          onAbility={() => engineRef.current?.activateAbility()}
+          onRollback={() => engineRef.current?.rollbackThreat()}
+        />
       )}
 
       {screen === 'game' && hud?.paused && (

@@ -111,10 +111,11 @@ export function Ships({
                 <div className={cn('relative', lockedCp && 'opacity-40 grayscale')}>
                   <ShipPreview id={ship.id} accent={ship.accent} />
                   <div className="mx-auto flex max-w-[210px] flex-col gap-1">
-                    <StatRow label="СКР" k={ship.mods.speed / 1.35} color="#a78bfa" />
-                    <StatRow label="ОГН" k={ship.mods.rate / 1.2} color="#ffd23f" />
-                    <StatRow label="УРН" k={ship.mods.damage / 1.7} color="#f472b6" />
-                    <StatRow label="БРН" k={(3 + ship.mods.hull) / 6.4} color="#4ade80" />
+                    <StatRow label="СКР" k={ship.mods.speed / 1.8} color="#a78bfa" />
+                    <StatRow label="ОГН" k={ship.mods.rate / 1.5} color="#ffd23f" />
+                    <StatRow label="УРН" k={ship.mods.damage / 2.5} color="#f472b6" />
+                    <StatRow label="HP" k={ship.mods.hp / 220} color="#4ade80" />
+                    <StatRow label="БРН" k={ship.mods.armor / 30} color="#38bdf8" />
                   </div>
                 </div>
 
@@ -128,7 +129,9 @@ export function Ships({
                       <Sparkles size={11} strokeWidth={3} />
                       {ability.name}
                     </span>
-                    <span className="num text-[9px] font-bold text-slate-400">КД {ability.cooldown}с</span>
+                      <span className="num text-[9px] font-bold text-slate-400">
+                        {ship.mods.hp} HP · {ship.mods.armor}% БРН · КД {ability.cooldown}с
+                      </span>
                   </div>
                   <div className="mt-0.5 text-[9.5px] leading-snug font-medium text-slate-400">{ability.desc}</div>
                 </div>

@@ -197,16 +197,26 @@ export interface UpgradeDef {
   max: number;
   base: number;
   growth: number;
+  group: 'weapon' | 'hull' | 'turret';
 }
 
+/** Группа в ангаре — для вкладок интерфейса. */
+export type UpgradeGroup = 'weapon' | 'hull' | 'turret';
+
 export const UPGRADES: UpgradeDef[] = [
-  { id: 'power', name: 'МОЩЬ ОРУДИЯ', sub: 'Урон снарядов', max: 6, base: 60, growth: 2.0 },
-  { id: 'rate', name: 'ТЕМП ОГНЯ', sub: 'Выстрелов в секунду', max: 6, base: 60, growth: 2.05 },
-  { id: 'streams', name: 'МУЛЬТИЗАЛП', sub: 'Параллельных снарядов', max: 3, base: 220, growth: 2.8 },
-  { id: 'hull', name: 'БРОНЯ КОРПУСА', sub: '+1 к прочности', max: 6, base: 80, growth: 2.0 },
-  { id: 'shield', name: 'ЭМИТТЕР ЩИТА', sub: 'Длительность щита', max: 5, base: 70, growth: 1.95 },
-  { id: 'magnet', name: 'ТЯГОВОЕ ПОЛЕ', sub: 'Радиус сбора монет', max: 5, base: 50, growth: 1.9 },
-  { id: 'tech', name: 'ТЕХНИКА', sub: 'Уникальная система корпуса', max: 5, base: 140, growth: 2.2 },
+  { id: 'power', name: 'МОЩЬ ОРУДИЯ', sub: '+18% урона за уровень', max: 6, base: 60, growth: 2.0, group: 'weapon' },
+  { id: 'rate', name: 'ТЕМП ОГНЯ', sub: '+22% скорострельности', max: 6, base: 60, growth: 2.05, group: 'weapon' },
+  { id: 'streams', name: 'МУЛЬТИЗАЛП', sub: '+1 ствол на носу', max: 3, base: 220, growth: 2.8, group: 'weapon' },
+  { id: 'tech', name: 'ТЕХНИКА', sub: 'Уникальная система корпуса', max: 5, base: 140, growth: 2.2, group: 'weapon' },
+  { id: 'hull', name: 'ПРОЧНОСТЬ', sub: '+25 к запасу HP', max: 8, base: 70, growth: 1.85, group: 'hull' },
+  { id: 'armor', name: 'БРОНЕПЛАСТИНЫ', sub: '+4% снижения урона', max: 6, base: 90, growth: 2.0, group: 'hull' },
+  { id: 'shield', name: 'ЭМИТТЕР ЩИТА', sub: 'Длительность щита', max: 5, base: 70, growth: 1.95, group: 'hull' },
+  { id: 'magnet', name: 'ТЯГОВОЕ ПОЛЕ', sub: 'Радиус сбора монет', max: 5, base: 50, growth: 1.9, group: 'hull' },
+  { id: 'turretL', name: 'ЛЕВАЯ ТУРЕЛЬ', sub: 'Автопушка бьёт назад', max: 1, base: 900, growth: 1, group: 'turret' },
+  { id: 'turretR', name: 'ПРАВАЯ ТУРЕЛЬ', sub: 'Автопушка бьёт назад', max: 1, base: 900, growth: 1, group: 'turret' },
+  { id: 'turretPower', name: 'КАЛИБР ТУРЕЛЕЙ', sub: '+20% урона турелей', max: 5, base: 180, growth: 2.0, group: 'turret' },
+  { id: 'turretRate', name: 'ПРИВОД ТУРЕЛЕЙ', sub: '+20% скорострельности', max: 5, base: 180, growth: 2.0, group: 'turret' },
+  { id: 'turretStreams', name: 'ЗАЛП ТУРЕЛЕЙ', sub: '+1 снаряд у каждой', max: 2, base: 500, growth: 2.6, group: 'turret' },
 ];
 
 export const UPGRADE_MAP: Record<UpgradeId, UpgradeDef> = UPGRADES.reduce(
@@ -215,8 +225,42 @@ export const UPGRADE_MAP: Record<UpgradeId, UpgradeDef> = UPGRADES.reduce(
 );
 
 export function emptyUpgrades(): ShipUpgrades {
-  return { power: 0, rate: 0, streams: 0, hull: 0, shield: 0, magnet: 0, tech: 0 };
+  return {
+    power: 0,
+    rate: 0,
+    streams: 0,
+    hull: 0,
+    armor: 0,
+    shield: 0,
+    magnet: 0,
+    tech: 0,
+    turretL: 0,
+    turretR: 0,
+    turretPower: 0,
+    turretRate: 0,
+    turretStreams: 0,
+  };
 }
+
+// ── Модель урона ─────────────────────────────────────────────────────────────
+export const DAMAGE = {
+  /** попадание вражеского снаряда */
+  bullet: 10,
+  /** таран врага */
+  crash: 25,
+  /** таран линейного корабля */
+  bossCrash: 35,
+  /** лазерное жало за секунду */
+  laserPerSec: 45,
+  /** максимальное суммарное снижение урона, % */
+  armorCap: 70,
+} as const;
+
+/** Платная способность: откат уровня угрозы. */
+export const ROLLBACK = {
+  cost: 650,
+  cooldown: 60,
+} as const;
 
 export function upgradeCost(id: UpgradeId, level: number): number {
   const def = UPGRADE_MAP[id];
@@ -282,7 +326,10 @@ export interface ShipMods {
   speed: number;
   rate: number;
   damage: number;
-  hull: number;
+  /** базовый запас прочности в HP */
+  hp: number;
+  /** базовое снижение урона, % */
+  armor: number;
   streams: number;
 }
 
@@ -306,10 +353,10 @@ export const SHIPS: ShipDef[] = [
     id: 'falcon',
     name: 'FALCON-7',
     tag: 'БАЛАНС',
-    desc: 'Надёжный перехватчик. Ровные характеристики и ракетный модуль.',
+    desc: 'Надёжный перехватчик: 100 HP, ровные характеристики, ракетный модуль.',
     cost: 0,
     requires: 0,
-    mods: { speed: 1, rate: 1, damage: 1, hull: 0, streams: 0 },
+    mods: { speed: 1, rate: 1, damage: 1, hp: 100, armor: 0, streams: 0 },
     ability: 'dash',
     tech: 'missiles',
     accent: '#22d3ee',
@@ -318,10 +365,10 @@ export const SHIPS: ShipDef[] = [
     id: 'comet',
     name: 'COMET',
     tag: 'СКОРОСТЬ',
-    desc: 'Молниеносный и хрупкий. Шквал мелких пуль и ЭМИ-защита.',
+    desc: 'Молниеносный и хрупкий: всего 70 HP, зато шквал пуль и ЭМИ-защита.',
     cost: 1500,
     requires: 0,
-    mods: { speed: 1.7, rate: 1.45, damage: 0.62, hull: -1, streams: 0 },
+    mods: { speed: 1.7, rate: 1.45, damage: 0.62, hp: 70, armor: 0, streams: 0 },
     ability: 'afterburner',
     tech: 'lightning',
     accent: '#a78bfa',
@@ -330,10 +377,10 @@ export const SHIPS: ShipDef[] = [
     id: 'titan',
     name: 'TITAN-IX',
     tag: 'ТЯЖЕЛОВЕС',
-    desc: 'Ходячая крепость: +4 корпуса, но разворачивается как баржа.',
+    desc: 'Ходячая крепость: 220 HP и 30% брони, но разворот как у баржи.',
     cost: 4000,
     requires: 5000,
-    mods: { speed: 0.58, rate: 0.78, damage: 1.85, hull: 4, streams: 0 },
+    mods: { speed: 0.58, rate: 0.78, damage: 1.85, hp: 220, armor: 30, streams: 0 },
     ability: 'fortress',
     tech: 'bombs',
     accent: '#34d399',
@@ -342,10 +389,10 @@ export const SHIPS: ShipDef[] = [
     id: 'nova',
     name: 'NOVA-X',
     tag: 'АРТИЛЛЕРИЯ',
-    desc: 'Чудовищный урон и лишний ствол ценой темпа огня.',
+    desc: 'Чудовищный урон и лишний ствол ценой темпа огня. 120 HP, 10% брони.',
     cost: 9000,
     requires: 15000,
-    mods: { speed: 0.92, rate: 0.62, damage: 2.45, hull: 0, streams: 1 },
+    mods: { speed: 0.92, rate: 0.62, damage: 2.45, hp: 120, armor: 10, streams: 1 },
     ability: 'novabeam',
     tech: 'drones',
     accent: '#f472b6',
@@ -358,7 +405,7 @@ export const SHIPS: ShipDef[] = [
     cost: 0,
     requires: 500000,
     requiresUnlock: 'ship:voidx',
-    mods: { speed: 1.25, rate: 1.12, damage: 1.3, hull: -1, streams: 1 },
+    mods: { speed: 1.25, rate: 1.12, damage: 1.3, hp: 95, armor: 15, streams: 1 },
     ability: 'collapse',
     tech: 'singularity',
     accent: '#818cf8',

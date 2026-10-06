@@ -29,7 +29,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     icon: 'dash',
     color: '#22d3ee',
     cooldown: 8,
-    duration: 0.6,
+    duration: 1.6,
     charge: 0,
   },
   afterburner: {
@@ -40,7 +40,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     icon: 'flame',
     color: '#a78bfa',
     cooldown: 10,
-    duration: 4.5,
+    duration: 5.5,
     charge: 0,
   },
   fortress: {
@@ -51,7 +51,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     icon: 'shield',
     color: '#34d399',
     cooldown: 14,
-    duration: 5.5,
+    duration: 6.5,
     charge: 0,
   },
   novabeam: {
@@ -62,7 +62,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     icon: 'beam',
     color: '#f472b6',
     cooldown: 13,
-    duration: 1.25,
+    duration: 2.25,
     charge: 0.65,
   },
   collapse: {
@@ -73,7 +73,7 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     icon: 'rift',
     color: '#c084fc',
     cooldown: 13,
-    duration: 0.9,
+    duration: 1.9,
     charge: 0,
   },
 };

@@ -3,7 +3,7 @@ import { todayKey } from './dailyRun';
 import { emptyUpgrades } from './content';
 
 const KEY = 'nova_strike_save_v1'; // ключ стабилен — старые сейвы продолжают грузиться
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 const SHIP_IDS: ShipId[] = ['falcon', 'comet', 'titan', 'nova', 'voidx'];
 
