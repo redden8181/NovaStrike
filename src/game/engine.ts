@@ -279,7 +279,19 @@ export class GameEngine {
   private bossHooks: BossHooks;
 
   // difficulty cache (recomputed once per frame)
-  private d = { c: 0, speed: 1, hp: 1, interval: 1, bullet: 1, aggro: 1, burst: 1 };
+  // level — текущий уровень угрозы, maxEnemies/maxBullets — потолки этого уровня
+  private d = {
+    c: 0,
+    level: 1,
+    speed: 1,
+    hp: 1,
+    interval: 1,
+    bullet: 1,
+    aggro: 1,
+    burst: 1,
+    maxEnemies: 7,
+    maxBullets: 22,
+  };
 
   // pending persistence
   private pendCoins = 0;
@@ -307,7 +319,10 @@ export class GameEngine {
     this.bossHooks = {
       bullet: (x, y, vx, vy, r, color, homing) => this.spawnEBullet(x, y, vx, vy, r, color, homing ?? 0),
       spawnMinion: (x, y) => {
-        if (this.enemies.length < 26) this.spawnEnemy(this.rng() < 0.35 ? 'diver' : 'scout', x, y);
+        // у босса своя квота: не больше 60% общего потолка, иначе нечем дышать
+        if (this.enemies.length < this.d.maxEnemies * 0.6) {
+          this.spawnEnemy(this.rng() < 0.35 ? 'diver' : 'scout', x, y);
+        }
       },
       player: () => this.playerPos,
       dims: () => this.dimsCache,
@@ -662,7 +677,8 @@ export class GameEngine {
   }
 
   private spawnEBullet(x: number, y: number, vx: number, vy: number, r: number, color: string, homing = 0) {
-    if (this.eBullets.length > 220) return;
+    // потолок пуль текущего уровня — ключевая защита от «залитого» экрана
+    if (this.eBullets.length >= this.d.maxBullets) return;
     const b = this.freeEB.pop() ?? { x: 0, y: 0, vx: 0, vy: 0, r: 0, color: '#fff', homing: 0, life: 0 };
     b.x = x;
     b.y = y;
@@ -688,18 +704,25 @@ export class GameEngine {
    */
   private updateDiff() {
     const mul = this.modeDef.difficultyMul;
-    // прогресс ускоряется на больших счетах, но без скачков (sqrt-добавка)
-    const base = this.score / 2600 + this.runTime / 240;
-    const late = Math.sqrt(Math.max(0, this.score - 30000) / 9000);
+    // прогресс ускоряется на больших счетах, но плавно (sqrt-добавка после 45k)
+    const base = this.score / 3000 + this.runTime / 280;
+    const late = Math.sqrt(Math.max(0, this.score - 45000) / 14000);
     const c = (base + late) * mul;
     const d = this.d;
     d.c = c;
-    d.speed = (1 + Math.min(1.9, c * 0.17)) * (this.daily?.enemySpeed ?? 1);
-    d.hp = (1 + c * 0.42) * (this.daily?.enemyHp ?? 1);
-    d.interval = Math.max(0.17, 1.0 - Math.min(c, 14) * 0.062) / (this.daily?.spawnRate ?? 1);
-    d.bullet = 1 + Math.min(1, c * 0.08);
-    d.aggro = Math.min(1.9, 0.35 + c * 0.13);
-    d.burst = c > 8 ? 4 : c > 5 ? 3 : c > 2.2 ? 2 : 1;
+    d.level = clamp(1 + Math.floor(c), 1, 20);
+
+    d.speed = (1 + Math.min(1.5, c * 0.14)) * (this.daily?.enemySpeed ?? 1);
+    d.hp = (1 + c * 0.34) * (this.daily?.enemyHp ?? 1);
+    d.interval = Math.max(0.34, 1.05 - Math.min(c, 12) * 0.058) / (this.daily?.spawnRate ?? 1);
+    d.bullet = 1 + Math.min(0.75, c * 0.06);
+    d.aggro = Math.min(1.35, 0.3 + c * 0.1);
+    d.burst = c > 9 ? 3 : c > 4 ? 2 : 1;
+
+    // ── потолки экрана: растут только с уровнем, поле никогда не «заливает» ──
+    const dens = this.daily?.spawnRate ?? 1;
+    d.maxEnemies = Math.round(Math.min(26, 6 + d.level * 1.1) * dens);
+    d.maxBullets = Math.round(Math.min(96, 14 + d.level * 4.4) * dens);
   }
 
   // ── main loop ──────────────────────────────────────────────────────────────
@@ -1505,9 +1528,15 @@ export class GameEngine {
       this.spawnT -= dt;
     }
     if (this.spawnT <= 0) {
-      const n = d.burst > 1 && this.rng() < 0.5 ? d.burst : 1;
-      for (let i = 0; i < n; i++) this.spawnEnemy(this.pickKind());
-      this.spawnT = d.interval * (0.7 + this.rng() * 0.65);
+      // при переполнении экрана спавн просто ждёт — волна не копится в очередь
+      if (this.enemies.length >= d.maxEnemies) {
+        this.spawnT = 0.35;
+      } else {
+        const room = d.maxEnemies - this.enemies.length;
+        const n = Math.min(room, d.burst > 1 && this.rng() < 0.5 ? d.burst : 1);
+        for (let i = 0; i < n; i++) this.spawnEnemy(this.pickKind());
+        this.spawnT = d.interval * (0.7 + this.rng() * 0.65);
+      }
     }
     this.formationT -= dt;
     if (this.formationT <= 0) {
@@ -1544,7 +1573,7 @@ export class GameEngine {
   }
 
   private spawnEnemy(kind: EnemyKind, x?: number, y?: number) {
-    if (this.enemies.length > 40) return;
+    if (this.enemies.length >= this.d.maxEnemies) return;
     const def = ENEMIES[kind];
     const d = this.d;
     const ex = x ?? 28 + this.rng() * (this.w - 56);
@@ -1574,8 +1603,10 @@ export class GameEngine {
   }
 
   private spawnFormation() {
+    const room = this.d.maxEnemies - this.enemies.length;
+    if (room < 3) return;
     const x0 = this.w * (0.25 + this.rng() * 0.5);
-    const n = 3 + Math.floor(this.rng() * 3);
+    const n = Math.min(room, 3 + Math.floor(this.rng() * 3));
     for (let i = 0; i < n; i++) {
       const x = x0 + (i - (n - 1) / 2) * 44 * this.u;
       if (x < 26 || x > this.w - 26) continue;
@@ -2052,7 +2083,7 @@ export class GameEngine {
       this.burst(this.px, this.py - 40 * this.u, m.color, 22, 260);
     }
 
-    const lvl = clamp(1 + Math.floor(this.d.c), 1, 20);
+    const lvl = this.d.level;
     if (lvl > this.level) {
       this.level = lvl;
       if (lvl > this.levelBannered && lvl <= 10) {
