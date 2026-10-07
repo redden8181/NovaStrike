@@ -139,6 +139,9 @@ export function Modes({
                       <span className="rounded-full border border-amber-300/40 bg-amber-400/15 px-2 py-0.5 text-[9px] font-black tracking-[0.1em] text-amber-300">
                         ×{daily.coinMul.toFixed(1)} · ДО {DAILY_COIN_CAP} МОНЕТ
                       </span>
+                      <span className="rounded-full border border-rose-400/40 bg-rose-500/15 px-2 py-0.5 text-[9px] font-black tracking-[0.1em] text-rose-300">
+                        ВРАГИ ×2
+                      </span>
                     </div>
                     <div className="mt-1.5 text-[9px] leading-snug font-medium text-slate-400">
                       {daily.mutators.map((m) => m.desc).join(' · ')}
@@ -169,8 +172,8 @@ export function Modes({
                     </div>
 
                     <div className="mt-1.5 text-[8.5px] leading-snug font-semibold text-slate-500">
-                      Одна попытка в сутки, добыча ограничена {DAILY_COIN_CAP} монетами. Завтра — другое событие и
-                      другой корабль.
+                      Одна попытка в сутки, добыча ограничена {DAILY_COIN_CAP} монетами. Рекорд, медали и вехи здесь не
+                      начисляются — только место в таблице дня. Завтра другое событие и другой корабль.
                     </div>
                   </div>
                 )}

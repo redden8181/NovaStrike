@@ -15,7 +15,7 @@ import type {
 import { ABILITIES, fuseAbilities, type AbilityDef } from './abilities';
 
 /** Версия сборки — показывается в меню. */
-export const BUILD_VERSION = '2.0.0';
+export const BUILD_VERSION = '2.0.1';
 
 // ── Ранги наград ─────────────────────────────────────────────────────────────
 export interface RankDef {
@@ -707,6 +707,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '2.0.1',
+    title: 'ЧЕСТНОЕ ЕЖЕДНЕВНОЕ',
+    items: [
+      'Ежедневное событие больше не начисляет вехи, медали, ранги треков и общий рекорд',
+      'Из события в профиль идут только монеты — не больше 2 000 за вылет',
+      'Враги в событии вдвое крепче и бьют вдвое больнее: топовый корабль надо отработать',
+      'Элита появляется с первых секунд события',
+    ],
+  },
   {
     version: '2.0.0',
     title: 'ПОЗДНЯЯ ИГРА',

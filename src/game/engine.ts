@@ -793,9 +793,9 @@ export class GameEngine {
     d.bullet = 1 + Math.min(1.7, c * 0.06);
     d.aggro = Math.min(2.8, 0.3 + c * 0.1);
     // ── ключевое: урон врагов растёт вместе с прочностью корабля ──
-    d.dmgMul = 1 + Math.min(5.5, c * 0.075);
-    // доля элитных противников в поздней игре
-    d.elite = clamp((L - 14) * 0.035, 0, 0.5);
+    d.dmgMul = (1 + Math.min(5.5, c * 0.075)) * (this.daily?.dmgMul ?? 1);
+    // доля элитных противников в поздней игре (в ежедневном — с самого старта)
+    d.elite = this.daily ? clamp(0.25 + L * 0.025, 0, 0.6) : clamp((L - 14) * 0.035, 0, 0.5);
     d.burst = c > 22 ? 5 : c > 15 ? 4 : c > 9 ? 3 : c > 4 ? 2 : 1;
 
     // ── потолки экрана: растут с уровнем, но остаются читаемыми ──
@@ -2309,6 +2309,12 @@ export class GameEngine {
 
   // ── milestones / achievements / persistence ────────────────────────────────
   private checkMilestones() {
+    // Ежедневное событие изолировано: эталонный корабль выбил бы все вехи разом
+    if (this.gameMode === 'daily') {
+      const lvl = this.d.level;
+      if (lvl > this.level) this.level = lvl;
+      return;
+    }
     const save = this.api.getSave();
     for (const m of MILESTONES) {
       // local guard as well: the React save mirror updates a frame or two later
@@ -2358,6 +2364,7 @@ export class GameEngine {
    * Трек «score» не платит отдельно — его ступени уже оплачены вехами.
    */
   private checkTracks() {
+    if (this.gameMode === 'daily') return;
     const save = this.api.getSave();
     for (const def of TRACKS) {
       if (def.id === 'score') continue;
@@ -2379,6 +2386,7 @@ export class GameEngine {
   }
 
   private grantAchievement(id: string) {
+    if (this.gameMode === 'daily') return;
     if (this.unlockedAch.includes(id)) return;
     if (this.api.getSave().achievements.includes(id)) return;
     this.unlockedAch.push(id);
@@ -2404,11 +2412,13 @@ export class GameEngine {
 
   private flush(force: boolean) {
     if (!force && !this.pendCoins && !this.pendKills) return;
+    // в ежедневном событии в общий профиль уходят только монеты (с потолком)
+    const isolated = this.gameMode === 'daily';
     const dCoins = this.pendCoins;
     const dKills = this.pendKills;
     const dBoss = this.pendBossKills;
     const ach = this.pendAch.slice();
-    const newBest = Math.floor(this.score) > this.api.getSave().best ? Math.floor(this.score) : 0;
+    const newBest = !isolated && Math.floor(this.score) > this.api.getSave().best ? Math.floor(this.score) : 0;
     this.pendCoins = 0;
     this.pendKills = 0;
     this.pendBossKills = 0;
@@ -2427,24 +2437,26 @@ export class GameEngine {
         best: Math.max(s.best, newBest || 0),
         coins: s.coins + dCoins + reward,
         achievements,
-        stats: {
-          ...s.stats,
-          kills: s.stats.kills + dKills,
-          totalCoins: s.stats.totalCoins + dCoins,
-          bossKills: s.stats.bossKills + dBoss,
-        },
+        stats: isolated
+          ? s.stats
+          : {
+              ...s.stats,
+              kills: s.stats.kills + dKills,
+              totalCoins: s.stats.totalCoins + dCoins,
+              bossKills: s.stats.bossKills + dBoss,
+            },
       };
     });
     this.emitHud();
   }
 
   private endRun() {
-    if (this.gameMode === 'daily') this.grantAchievement('daily');
     this.checkAchievements();
 
     const finalScore = Math.floor(this.score);
     const save = this.api.getSave();
-    const newBest = finalScore > save.best;
+    const isolated = this.gameMode === 'daily';
+    const newBest = !isolated && finalScore > save.best;
     const dCoins = this.pendCoins;
     const dKills = this.pendKills;
     const dBoss = this.pendBossKills;
@@ -2474,20 +2486,23 @@ export class GameEngine {
           : s.daily;
       return {
         ...s,
-        best: Math.max(s.best, finalScore),
+        // рекорд и карьерная статистика не трогаются ежедневным событием
+        best: isolated ? s.best : Math.max(s.best, finalScore),
         coins: s.coins + dCoins + reward,
         achievements: [...new Set([...s.achievements, ...this.unlockedAch])],
         bestByMode: { ...s.bestByMode, [mode]: modeBest },
         daily,
-        stats: {
-          ...s.stats,
-          kills: s.stats.kills + dKills,
-          totalCoins: s.stats.totalCoins + dCoins,
-          bossKills: s.stats.bossKills + dBoss,
-          bestTime: Math.max(s.stats.bestTime, runTime),
-          bossRushBest: mode === 'bossrush' ? Math.max(s.stats.bossRushBest, bossesDown) : s.stats.bossRushBest,
-          hardcoreBest: mode === 'hardcore' ? Math.max(s.stats.hardcoreBest, finalScore) : s.stats.hardcoreBest,
-        },
+        stats: isolated
+          ? s.stats
+          : {
+              ...s.stats,
+              kills: s.stats.kills + dKills,
+              totalCoins: s.stats.totalCoins + dCoins,
+              bossKills: s.stats.bossKills + dBoss,
+              bestTime: Math.max(s.stats.bestTime, runTime),
+              bossRushBest: mode === 'bossrush' ? Math.max(s.stats.bossRushBest, bossesDown) : s.stats.bossRushBest,
+              hardcoreBest: mode === 'hardcore' ? Math.max(s.stats.hardcoreBest, finalScore) : s.stats.hardcoreBest,
+            },
       };
     });
 
@@ -2496,7 +2511,7 @@ export class GameEngine {
       mode,
       modeLabel: this.modeDef.name,
       score: finalScore,
-      best: Math.max(save.best, finalScore),
+      best: isolated ? save.best : Math.max(save.best, finalScore),
       newBest,
       coins: this.runCoins,
       kills: this.runKills,

@@ -177,6 +177,8 @@ export interface DailyConfig {
   enemySpeed: number;
   spawnRate: number;
   bulletSpeed: number;
+  /** множитель урона вражеских атак */
+  dmgMul: number;
   coinMul: number;
   scoreMul: number;
   bossInterval: number;
@@ -198,10 +200,12 @@ export function buildDaily(key: string = todayKey()): DailyConfig {
     event,
     mutators: picked,
     ship: event.ship,
-    enemyHp: 1,
+    // корабль выдаётся топовый, поэтому враги вдвое крепче и бьют вдвое больнее
+    enemyHp: 2,
     enemySpeed: 1,
     spawnRate: 1,
     bulletSpeed: 1,
+    dmgMul: 2,
     // ежедневное всегда щедрее обычного забега
     coinMul: 2.5,
     scoreMul: 1.1,
