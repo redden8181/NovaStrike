@@ -65,3 +65,44 @@ test('actual orbit engine validates access, awards persistent artifacts and isol
   e.startRun({ mode: 'daily', startCheckpoint: 0, orbit: '112' }); assert.equal(e.world, undefined); assert.equal(e.runArtifacts, 0); e.collectArtifact(0, 0, 99); assert.equal(t.save.exploration.artifacts.falcon, 2);
   e.destroy();
 });
+
+test('saturated player bullet pool preserves every stream and symmetry of new volleys', () => {
+  const { engine: e } = setup();
+  e.startRun({ mode: 'daily', startCheckpoint: 0 });
+  e.streamsBase = 9;
+  // Saturate with a mixture of main volleys and independent tech projectiles.
+  for (let i = 0; i < 120; i++) {
+    e.fire();
+    const volley = e.pBullets.filter(b => b.volley === e.nextVolley);
+    assert.equal(volley.length, 9, `volley ${i} must retain all nine streams`);
+    for (let j = 0; j < 4; j++) {
+      assert.ok(Math.abs(volley[j].x + volley[8 - j].x - 2 * e.px) < 1e-8);
+      assert.ok(Math.abs(volley[j].vx + volley[8 - j].vx) < 1e-8);
+    }
+    e.addPBullet(0, 0, 0, -1, 1, 1, false, 1);
+    assert.ok(e.pBullets.length <= 180);
+    const sizes = new Map();
+    for (const b of e.pBullets) if (b.volley) sizes.set(b.volley, (sizes.get(b.volley) ?? 0) + 1);
+    assert.ok([...sizes.values()].every(size => size === 9), 'old volleys must retire as whole groups too');
+  }
+  e.destroy();
+});
+
+test('left and right turret volleys both fit when the bullet pool is full', () => {
+  const { engine: e } = setup();
+  e.startRun({ mode: 'daily', startCheckpoint: 0 }); e.phase = 'playing';
+  e.streamsBase = 9;
+  for (let i = 0; i < 20; i++) e.fire();
+  assert.equal(e.pBullets.length, 180);
+  e.turretL = e.turretR = true; e.turretStreams = 4;
+  e.turretTL = e.turretTR = 0;
+  e.turretAngL = Math.PI; e.turretAngR = 0;
+  const left = e.turretMount(-1), right = e.turretMount(1);
+  e.enemies = [{ x: left.x - 100, y: left.y }, { x: right.x + 100, y: right.y }];
+  e.updateTurrets(1 / 60);
+  const shots = e.pBullets.filter(b => b.kind === 4);
+  assert.equal(shots.filter(b => b.vx < 0).length, 4);
+  assert.equal(shots.filter(b => b.vx > 0).length, 4);
+  assert.ok(e.pBullets.length <= 180);
+  e.destroy();
+});

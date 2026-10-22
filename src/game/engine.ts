@@ -82,6 +82,7 @@ interface Particle {
 }
 /** kind: 0 обычный · 1 ракета (самонаведение) · 2 бомба · 3 осколок */
 interface PBullet {
+  volley: number;
   x: number;
   y: number;
   vx: number;
@@ -170,6 +171,7 @@ const EMPTY_TIMERS: Record<PowerupType, number> = {
   repair: 0,
 };
 const MAX_PARTS = 300;
+const MAX_PLAYER_BULLETS = 180;
 
 export class GameEngine {
   private cv: HTMLCanvasElement;
@@ -301,6 +303,7 @@ export class GameEngine {
   private banners: Banner[] = [];
   private freeParts: Particle[] = [];
   private freePB: PBullet[] = [];
+  private nextVolley = 0;
   private freeEB: EBullet[] = [];
 
   // spawning / bosses
@@ -740,6 +743,25 @@ export class GameEngine {
     this.parts.push(p);
   }
 
+  /** Retire complete oldest volleys, never just their right-hand streams. */
+  private makeBulletRoom(count: number) {
+    while (this.pBullets.length + count > MAX_PLAYER_BULLETS) {
+      const oldest = this.pBullets[0];
+      if (!oldest) break;
+      const volley = oldest.volley;
+      let remove = 1;
+      if (volley > 0) {
+        while (remove < this.pBullets.length && this.pBullets[remove].volley === volley) remove++;
+      }
+      this.freePB.push(...this.pBullets.splice(0, remove));
+    }
+  }
+
+  private reserveVolley(count: number): number {
+    this.makeBulletRoom(count);
+    return ++this.nextVolley;
+  }
+
   private addPBullet(
     x: number,
     y: number,
@@ -750,10 +772,11 @@ export class GameEngine {
     power: boolean,
     kind = 0,
     color = '',
+    volley = 0,
   ) {
-    if (this.pBullets.length > 180) return;
+    this.makeBulletRoom(1);
     const b =
-      this.freePB.pop() ?? { x: 0, y: 0, vx: 0, vy: 0, dmg: 0, r: 0, power: false, kind: 0, life: 0, color: '' };
+      this.freePB.pop() ?? { x: 0, y: 0, vx: 0, vy: 0, dmg: 0, r: 0, power: false, kind: 0, life: 0, color: '', volley: 0 };
     b.x = x;
     b.y = y;
     b.vx = vx;
@@ -763,6 +786,7 @@ export class GameEngine {
     b.power = power;
     b.kind = kind;
     b.life = 0;
+    b.volley = volley;
     b.color = color || (power ? '#f472b6' : '#67e8f9');
     this.pBullets.push(b);
   }
@@ -1386,6 +1410,7 @@ export class GameEngine {
     const speed = 860 * this.u;
     const powered = this.pw.power > 0 || syn.damageMul > 1.2;
     const size = (powered ? 5.5 : 4) * this.u * syn.bulletScale;
+    const volley = this.reserveVolley(n);
     for (let i = 0; i < n; i++) {
       const off = i - (n - 1) / 2;
       const angle = off * 0.058 * syn.spreadMul;
@@ -1397,6 +1422,9 @@ export class GameEngine {
         dmg,
         size,
         powered,
+        0,
+        '',
+        volley,
       );
     }
     this.muzzleT = 0.05;
@@ -1715,7 +1743,8 @@ export class GameEngine {
       // стреляем, только когда ствол почти навёлся
       if (Math.abs(diff) > 0.5) continue;
 
-        const n = this.turretStreams;
+      const n = this.turretStreams;
+      const volley = this.reserveVolley(n);
       for (let i = 0; i < n; i++) {
         const spread = (this.rng() - 0.5) * 0.12 + (i - (n - 1) / 2) * 0.14;
         const a = next + spread;
@@ -1731,6 +1760,7 @@ export class GameEngine {
           false,
           4,
           '#fbbf24',
+          volley,
         );
       }
       this.turretFlash = 1;
