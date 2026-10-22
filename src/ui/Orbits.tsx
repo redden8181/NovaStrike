@@ -1,0 +1,10 @@
+import { Orbit } from 'lucide-react';
+import type { SaveData } from '../game/types';
+import { availableWorlds, explorationOf, HOME_ORBIT, selectedWorld } from '../game/exploration';
+import { ScreenHeader } from './bits';
+export function Orbits({ save, onBack, onSelect }: { save: SaveData; onBack: () => void; onSelect: (id: string) => void }) {
+  const world = selectedWorld(save);
+  return <div className="workshop-screen"><div className="safe-top"><ScreenHeader title="Орбиты" sub="Маршрут выбранного корабля" onBack={onBack} /></div><div className="workshop-scroll">
+    <article className="workshop-panel"><Orbit size={44} aria-hidden="true" /><h2 className="mt-4 text-xl font-black">Орбита 077</h2><p className="mt-2 text-sm text-slate-300">Домашний сектор. Знакомые секторы, монеты и первые три звезды.</p><button type="button" className="workshop-primary mt-4" disabled={!world} onClick={() => onSelect(HOME_ORBIT)}>{!world ? 'Маршрут выбран' : 'Выбрать маршрут'}</button></article>
+    {availableWorlds(save).map(w => { const active = world?.id === w.id; return <article className="workshop-panel orbit-card" key={w.id} style={{ borderColor: `${w.color}66` }}><Orbit size={48} style={{ color: w.color }} aria-hidden="true" /><h2 className="mt-4 text-xl font-black">{w.name}</h2><p className="mt-1 text-sm" style={{ color: w.color }}>{w.title}</p><p className="mt-3 text-sm leading-relaxed text-slate-300">{w.detail}</p><p className="mt-3 text-sm text-slate-300">{w.artifact}: {explorationOf(save).artifacts[w.ship] ?? 0}<br /><span className="text-xs text-slate-400">Артефакт за каждые 20 уничтожений, за элиту и 3 за босса. Находки сохраняются сразу.</span></p><button type="button" className="workshop-primary mt-5" disabled={active} onClick={() => onSelect(w.id)}>{active ? 'Маршрут выбран' : 'Выбрать маршрут'}</button></article>; })}<p className="mt-4 text-xs leading-relaxed text-slate-400">Ежедневное событие проходит на Орбите 077 с одинаковыми условиями для всех пилотов.</p></div></div>;
+}

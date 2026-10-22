@@ -57,6 +57,7 @@ export interface DailyRecord {
 }
 
 export interface SaveData {
+  exploration?: { modules: BaseShipId[]; blueprints: BaseShipId[]; artifacts: Partial<Record<BaseShipId, number>>; orbit: string };
   operations?: import("./frontier").OperationsData;
   v: number;
   best: number;
@@ -146,6 +147,8 @@ export interface HudState {
 }
 
 export interface RunResult {
+  artifacts?: number;
+  artifactName?: string;
   bestCombo: number;
   mode: GameMode;
   modeLabel: string;
@@ -165,6 +168,7 @@ export interface RunResult {
 }
 
 export interface RunConfig {
+  orbit?: string;
   mode: GameMode;
   startCheckpoint: number;
 }

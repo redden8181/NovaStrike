@@ -66,6 +66,7 @@ export function GameOver({
           {result.bossKills > 0 && result.mode !== 'bossrush' ? ` · ${result.bossKills} БОСС` : ''}
           {result.startCheckpoint > 0 ? ` · С ТОЧКИ ${result.startCheckpoint}` : ''}
         </div>
+        {!!result.artifacts && <p className="mt-3 text-center text-sm text-cyan-200">{result.artifactName}: +{result.artifacts} · сохранено</p>}
         {result.mode === 'daily' && result.dailyBest !== undefined && (
           <div className="pop-in-1 num mt-1 text-[11px] font-bold tracking-wider text-amber-300">
             РЕКОРД ДНЯ {result.dailyBest}

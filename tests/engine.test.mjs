@@ -33,9 +33,9 @@ test('actual engine crosses sectors, applies multipliers and records the complet
   assert.equal(Math.round(e.score - score), 125);
   e.damagePlayer(1); assert.equal(e.chain.count, 0);
   e.render(); e.endRun();
-  assert.equal(t.save.operations.flights.length, 1);
+  assert.equal(t.save.operations.flights.length, 0);
   assert.ok(t.save.operations.progress.time >= 45);
-  assert.equal(t.result.bestCombo, t.save.operations.flights[0].combo);
+  assert.equal(t.result.bestCombo, t.save.operations.bestCombo);
   e.destroy();
 });
 test('actual daily engine keeps sectors and chain disabled and excludes contract progress', () => {
@@ -49,6 +49,19 @@ test('actual daily engine keeps sectors and chain disabled and excludes contract
   assert.equal(t.hud.sector, null); assert.equal(t.hud.combo, 0);
   e.endRun();
   assert.deepEqual(t.save.operations.progress, { kills: 0, time: 0, bosses: 0 });
-  assert.equal(t.save.operations.flights[0].mode, 'daily');
+  assert.equal(t.save.operations.flights.length, 0);
+  e.destroy();
+});
+
+test('actual orbit engine validates access, awards persistent artifacts and isolates daily events', () => {
+  const t = setup(); const e = t.engine;
+  e.startRun({ mode: 'classic', startCheckpoint: 0, orbit: '112' }); assert.equal(e.world, undefined);
+  t.save.exploration = { modules: ['falcon'], blueprints: [], artifacts: {}, orbit: '112' };
+  e.startRun({ mode: 'classic', startCheckpoint: 0, orbit: '112' }); assert.equal(e.world.id, '112');
+  e.runKills = 19; e.enemies.push({ x: 100, y: 100, score: 100, kind: 'scout', coinMin: 0, coinMax: 0, powerChance: 0 }); e.killEnemy(0, true);
+  assert.equal(t.save.exploration.artifacts.falcon, 1); assert.equal(e.runArtifacts, 1);
+  e.enemies.push({ x: 100, y: 100, score: 100, kind: 'scout', elite: true, coinMin: 0, coinMax: 0, powerChance: 0 }); e.killEnemy(0, true);
+  assert.equal(t.save.exploration.artifacts.falcon, 2); e.render(); e.endRun(); assert.equal(t.result.artifacts, 2);
+  e.startRun({ mode: 'daily', startCheckpoint: 0, orbit: '112' }); assert.equal(e.world, undefined); assert.equal(e.runArtifacts, 0); e.collectArtifact(0, 0, 99); assert.equal(t.save.exploration.artifacts.falcon, 2);
   e.destroy();
 });

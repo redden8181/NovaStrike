@@ -68,6 +68,6 @@ export function recordFlight(save: SaveData, date: string, flight: FlightRecord,
     ...data,
     bestCombo: eligible ? Math.max(data.bestCombo, flight.combo) : data.bestCombo,
     progress: eligible ? { kills: data.progress.kills + flight.kills, time: data.progress.time + flight.time, bosses: data.progress.bosses + bosses } : data.progress,
-    flights: [flight, ...data.flights].slice(0, 12),
+    flights: [],
   } };
 }

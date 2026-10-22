@@ -35,22 +35,22 @@ test('rewards require completion and can only be claimed once', () => {
   assert.equal(claimContract(claimed, date, 'unknown'), claimed);
   assert.equal(earned.coins, 0);
 });
-test('day rollover clears contracts but preserves journal and best series', () => {
+test('day rollover clears contracts and preserves best series without a journal', () => {
   const earned = claimContract(recordFlight(defaultSave(), date, flight, 1), date, 'kills');
   const next = operationsFor(earned, '2026-10-23');
   assert.deepEqual(next.progress, { kills: 0, time: 0, bosses: 0 });
-  assert.deepEqual(next.claimed, []); assert.equal(next.flights.length, 1); assert.equal(next.bestCombo, 23);
+  assert.deepEqual(next.claimed, []); assert.equal(next.flights.length, 0); assert.equal(next.bestCombo, 23);
 });
-test('daily mode is logged but cannot farm contracts or career combo', () => {
+test('daily mode cannot farm contracts or career combo', () => {
   const save = recordFlight(defaultSave(), date, { ...flight, mode: 'daily' }, 9);
   assert.deepEqual(save.operations.progress, { kills: 0, time: 0, bosses: 0 });
-  assert.equal(save.operations.bestCombo, 0); assert.equal(save.operations.flights.length, 1);
+  assert.equal(save.operations.bestCombo, 0); assert.equal(save.operations.flights.length, 0);
 });
-test('journal is capped and newest flight is first', () => {
+test('completed flights update totals without retaining flight records', () => {
   let save = defaultSave();
   for (let i = 0; i < 15; i++) save = recordFlight(save, date, { ...flight, score: i }, 0);
-  assert.equal(save.operations.flights.length, 12);
-  assert.equal(save.operations.flights[0].score, 14);
+  assert.equal(save.operations.flights.length, 0);
+  assert.equal(save.operations.progress.kills, 1500);
 });
 test('v9 migration preserves currency, fleet, selected hybrid and all upgrades', () => {
   const old = { ...defaultSave(), v: 9, coins: 9832, best: 67891, ship: 'fused:falcon+titan', fusions: [{ id: 'fused:falcon+titan', a: 'falcon', b: 'titan' }], operations: undefined };

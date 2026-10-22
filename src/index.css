@@ -264,6 +264,35 @@ canvas.game-canvas {
 .command-nav button + button { border-left:1px solid #ffffff0a; }
 .command-footer { display:flex; justify-content:space-between; gap:8px; font-size:7px; letter-spacing:.08em; color:#586b82; padding-top:6px; padding-bottom:max(6px, env(safe-area-inset-bottom)); }
 .operation-tab { padding:12px 8px; border-bottom:2px solid #ffffff15; color:#7e90a6; font-size:12px; font-weight:700; }
+.workshop-screen { position:absolute; inset:0; z-index:30; display:flex; flex-direction:column; background:#080d16; color:#e2e8f0; }
+.workshop-scroll { flex:1; min-height:0; overflow-y:auto; padding:20px 16px max(28px,env(safe-area-inset-bottom)); touch-action:pan-y; }
+.workshop-panel { padding:20px; margin-bottom:16px; border:1px solid #ffffff20; border-radius:18px; background:#121e2e; }
+.workshop-primary,.workshop-secondary { display:flex; align-items:center; justify-content:center; gap:8px; min-height:48px; width:100%; padding:12px; border-radius:10px; font-size:14px; font-weight:700; transition:background .15s; }
+.workshop-primary { color:#071722; background:#7dd3fc; }
+.workshop-secondary { color:#cbd5e1; border:1px solid #ffffff30; }
+.workshop-primary:disabled,.workshop-secondary:disabled { color:#a3b2c4; background:#ffffff08; cursor:default; }
+.workshop-primary:not(:disabled):active { background:#bae6fd; }
+.constructor-entry { display:flex; align-items:center; gap:16px; width:100%; min-height:88px; padding:18px; margin-bottom:20px; border:1px solid #7dd3fc66; border-radius:18px; color:#7dd3fc; background:#122739; text-align:left; }
+.constructor-entry strong,.constructor-entry small { display:block; }
+.constructor-entry strong { font-size:20px; }
+.constructor-entry small { margin-top:6px; font-size:12px; color:#cbd5e1; }
+.ship-stat-list { display:grid; gap:9px; }
+.ship-stat-list > div { display:flex; justify-content:space-between; gap:12px; font-size:13px; }
+.ship-stat-list dt { color:#b3c0d1; }
+.ship-stat-list dd { font-variant-numeric:tabular-nums; font-weight:700; }
+.blueprint-slots { position:relative; display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:24px; }
+.blueprint-slot { min-width:0; padding:16px 10px; display:flex; flex-direction:column; align-items:center; gap:12px; border:1px dashed #7dd3fc88; border-radius:16px; background:linear-gradient(135deg,#13283b,#101b2b); color:#bae6fd; font-size:13px; }
+.blueprint-slot select { min-height:48px; width:100%; padding:8px 4px; color:#f1f5f9; background:#091420; border-radius:8px; font-size:12px; }
+.blueprint-plus { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#7dd3fc; }
+.blueprint-empty { display:flex; align-items:center; flex-direction:column; gap:16px; text-align:center; padding:28px 16px; color:#94a3b8; border:1px solid #ffffff15; border-radius:18px; }
+.blueprint-empty h2 { font-size:18px; color:#e2e8f0; font-weight:700; }
+.blueprint-empty p { font-size:14px; line-height:1.6; }
+.blueprint-result { background-color:#102332; background-image:linear-gradient(#7dd3fc05 1px,transparent 1px),linear-gradient(90deg,#7dd3fc05 1px,transparent 1px); background-size:24px 24px; }
+.blueprint-library-row { display:flex; align-items:center; gap:14px; padding:16px 0; border-top:1px solid #ffffff20; color:#bae6fd; }
+.blueprint-library-row strong { font-size:14px; }
+.blueprint-library-row p { margin-top:5px; font-size:12px; color:#b3c0d1; }
+.workshop-panel .hangar-ship { position:relative; display:block; left:auto; top:auto; transform:none; width:100%; height:auto; max-height:190px; margin:8px auto 16px; object-fit:contain; }
+select:focus-visible { outline:2px solid #7dd3fc; outline-offset:3px; }
 .operation-tab.selected { border-color:#fb923c; color:#fdba74; }
 .operation-card { padding:18px; border:1px solid #ffffff12; border-radius:12px; background:#15203180; }
 .contract-claim { display:flex; align-items:center; justify-content:center; gap:8px; min-height:44px; width:100%; border-radius:6px; background:#f3a55a; color:#191109; font-size:12px; font-weight:750; }

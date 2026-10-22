@@ -1,11 +1,12 @@
 import { emptyOperations } from './frontier';
+import { normalizeExploration } from './exploration';
 import type { GameMode, SaveData, ShipId, ShipUpgrades } from './types';
 import { todayKey } from './dailyRun';
 import { TEST_MODE, emptyUpgrades } from './content';
 
 const KEY = 'nova_strike_save_v1'; // ключ стабилен — старые сейвы продолжают грузиться
 const BACKUP_KEY = 'nova_strike_save_backup_v1';
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 const SHIP_IDS: ShipId[] = ['falcon', 'comet', 'titan', 'nova', 'voidx'];
 
@@ -84,7 +85,7 @@ function migrate(raw: LegacySave): SaveData {
       ...emptyOperations(), ...(raw.operations ?? {}),
       progress: { ...emptyOperations().progress, ...(raw.operations?.progress ?? {}) },
       claimed: Array.isArray(raw.operations?.claimed) ? raw.operations.claimed : [],
-      flights: Array.isArray(raw.operations?.flights) ? raw.operations.flights.slice(0, 12) : [],
+      flights: [],
     },
     // Сначала сохраняем ВСЕ ключи (включая гибриды), ниже лишь дополняем базовые.
     shipUpgrades: { ...(raw.shipUpgrades ?? {}) },
@@ -127,7 +128,7 @@ function migrate(raw: LegacySave): SaveData {
     save.daily = { date: today, best: 0, runs: 0, lastScore: 0 };
   }
   if (!save.shipsOwned.includes(save.ship) && !save.fusions.some(f => f.id === save.ship)) save.ship = 'falcon';
-  return save;
+  return normalizeExploration(save);
 }
 
 export function loadSave(): SaveData {

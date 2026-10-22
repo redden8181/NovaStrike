@@ -1,5 +1,8 @@
 import { Operations } from './ui/Operations';
 import { claimContract } from './game/frontier';
+import { canPromote, createExperimental, installModule, normalizeExploration, promoteShip, selectedWorld } from './game/exploration';
+import { Constructor } from './ui/Constructor';
+import { Orbits } from './ui/Orbits';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Home, Play, Volume2, VolumeX } from 'lucide-react';
 import type { BaseShipId, GameMode, HudState, RunResult, SaveData, ShipId, UpgradeId } from './game/types';
@@ -7,17 +10,12 @@ import { loadSave, persist } from './game/storage';
 import { GameEngine } from './game/engine';
 import { sfx } from './game/audio';
 import {
-  FUSION_COST,
-  MAX_STAR,
   SHIP_MAP,
   TEST_MODE,
   capOf,
-  fusionId,
-  isFullyUpgraded,
   resolveShip,
   shipUpgradesOf,
   starOf,
-  starUpCost,
   upgradeCost,
 } from './game/content';
 import { Info } from './ui/Info';
@@ -31,7 +29,7 @@ import { Upgrades } from './ui/Upgrades';
 import { Ships } from './ui/Ships';
 import { Achievements } from './ui/Achievements';
 
-type Screen = 'menu' | 'game' | 'gameover' | 'upgrades' | 'ships' | 'achievements' | 'modes' | 'info' | 'operations';
+type Screen = 'menu' | 'game' | 'gameover' | 'upgrades' | 'ships' | 'achievements' | 'modes' | 'info' | 'operations' | 'constructor' | 'orbits';
 
 export default function App() {
   const [save, setSave] = useState<SaveData>(loadSave);
@@ -40,8 +38,9 @@ export default function App() {
 
   const commit = useCallback((fn: (s: SaveData) => SaveData) => {
     const previous = saveRef.current;
-    const next = fn(previous);
-    if (next === previous) return;
+    const candidate = fn(previous);
+    if (candidate === previous) return;
+    const next = normalizeExploration(candidate);
     saveRef.current = next;
     persist(next);
     setSave(next);
@@ -98,7 +97,7 @@ export default function App() {
     sfx.play('ui');
     const target = isModeUnlocked(saveRef.current, mode) ? mode : 'classic';
     setLastMode(target);
-    engineRef.current?.startRun({ mode: target, startCheckpoint: MODE_MAP[target].allowCheckpoints ? cp : 0 });
+    engineRef.current?.startRun({ mode: target, startCheckpoint: MODE_MAP[target].allowCheckpoints ? cp : 0, orbit: selectedWorld(saveRef.current)?.id });
     setResult(null);
     setScreen('game');
   }, []);
@@ -179,40 +178,21 @@ export default function App() {
   /** Повышение ранга корпуса: сбрасывает прокачку? Нет — только поднимает лимиты. */
   const starUp = useCallback(() => {
     const cur = saveRef.current;
-    const id = cur.ship;
-    const star = starOf(cur, id);
-    if (star >= MAX_STAR) return;
-    if (!isFullyUpgraded(cur, id)) return;
-    const cost = starUpCost(star);
-    if (!TEST_MODE && cur.coins < cost) return;
+    if (!canPromote(cur)) return;
     sfx.unlock();
     sfx.play('checkpoint');
-    commit((s) => ({
-      ...s,
-      coins: TEST_MODE ? s.coins : s.coins - cost,
-      shipStars: { ...s.shipStars, [id]: star + 1 },
-    }));
+    commit(promoteShip);
   }, [commit]);
 
   /** Слияние двух полностью прокачанных корпусов в гибрид. */
   const fuseShips = useCallback(
     (a: BaseShipId, b: BaseShipId) => {
       const cur = saveRef.current;
-      if (a === b) return;
-      if (!TEST_MODE) {
-        if (cur.coins < FUSION_COST) return;
-        if (!isFullyUpgraded(cur, a) || !isFullyUpgraded(cur, b)) return;
-      }
-      const id = fusionId(a, b);
-      if (cur.fusions?.some((f) => f.id === id)) return;
+      const next = createExperimental(cur, a, b);
+      if (next === cur) return;
       sfx.unlock();
       sfx.play('powerup');
-      commit((s) => ({
-        ...s,
-        coins: TEST_MODE ? s.coins : s.coins - FUSION_COST,
-        fusions: [...(s.fusions ?? []), { id, a, b }],
-        ship: id,
-      }));
+      commit(() => next);
     },
     [commit],
   );
@@ -332,7 +312,7 @@ export default function App() {
         />
       )}
       {screen === 'upgrades' && (
-        <Upgrades save={save} onBack={() => setScreen(backTo)} onBuy={buyUpgrade} onStarUp={starUp} />
+        <Upgrades save={save} onBack={() => setScreen(backTo)} onBuy={buyUpgrade} onStarUp={starUp} onInstall={id => commit(s => installModule(s, id))} />
       )}
       {screen === 'ships' && (
         <Ships
@@ -340,11 +320,13 @@ export default function App() {
           onBack={() => setScreen(backTo)}
           onSelect={selectShip}
           onBuy={buyShip}
-          onFuse={fuseShips}
+          onConstructor={() => setScreen('constructor')}
           onUnfuse={unfuseShip}
         />
       )}
       {screen === 'achievements' && <Achievements save={save} onBack={() => setScreen(backTo)} />}
+      {screen === 'constructor' && <Constructor save={save} onBack={() => setScreen('ships')} onCreate={fuseShips} />}
+      {screen === 'orbits' && <Orbits save={save} onBack={() => setScreen('menu')} onSelect={orbit => commit(s => ({ ...s, exploration: { ...normalizeExploration(s).exploration!, orbit } }))} />}
       {screen === 'operations' && <Operations save={save} onBack={() => setScreen(backTo)} onClaim={id => commit(s => claimContract(s, todayKey(), id))} />}
       {screen === 'info' && <Info onBack={() => setScreen(backTo)} />}
     </div>

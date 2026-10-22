@@ -6,15 +6,17 @@ import { contractsFor, operationsFor } from '../game/frontier';
 import { todayKey } from '../game/dailyRun';
 import { CoinChip } from './bits';
 import { ShipPreview } from './ShipPreview';
+import { selectedWorld } from '../game/exploration';
 
 export function Menu({ save, lastMode, startCp, onPlay, onOpen, onToggleMute }: {
   save: SaveData; lastMode: GameMode; startCp: number;
   onPlay: (mode: GameMode, cp: number) => void;
-  onOpen: (s: 'upgrades' | 'ships' | 'achievements' | 'modes' | 'info' | 'operations') => void;
+  onOpen: (s: 'upgrades' | 'ships' | 'achievements' | 'modes' | 'info' | 'operations' | 'orbits') => void;
   onToggleMute: () => void;
 }) {
   const mode = MODE_MAP[lastMode];
   const ship = resolveShip(save, save.ship);
+  const world = selectedWorld(save);
   const ops = operationsFor(save, todayKey());
   const contracts = contractsFor(todayKey());
   const ready = contracts.filter(c => ops.progress[c.metric] >= c.goal && !ops.claimed.includes(c.id)).length;
@@ -31,10 +33,10 @@ export function Menu({ save, lastMode, startCp, onPlay, onOpen, onToggleMute }: 
         </div>
       </header>
       <main className="command-main">
-        <div className="command-title"><span>ГЛАВА 03 / ФРОНТИР</span><h1>NOVA<span>STRIKE</span></h1><p>За пределами известного.</p></div>
+        <div className="command-title"><span>НЕИЗВЕСТНЫЕ ОРБИТЫ</span><h1>NOVA<span>STRIKE</span></h1><p>За пределами известного.</p></div>
         <button type="button" className="hangar-display" onClick={() => onOpen('ships')} aria-label="Выбрать корабль">
           <div className="orbital-ring" /><div className="orbital-ring inner" />
-          <span className="hangar-coordinate">ОРБИТА 077<br />СИСТЕМЫ В НОРМЕ</span>
+          <span className="hangar-coordinate">{world?.name.toUpperCase() ?? 'ОРБИТА 077'}<br />{world?.title.toUpperCase() ?? 'СИСТЕМЫ В НОРМЕ'}</span>
           <ShipPreview ship={save.ship} />
           <div className="hangar-caption"><div><small>АКТИВНЫЙ КОРПУС</small><strong style={{ color: ship.accent }}>{ship.name}</strong></div><span>{starRank(starOf(save, save.ship)).name}<ArrowUpRight size={16} /></span></div>
         </button>
@@ -47,6 +49,7 @@ export function Menu({ save, lastMode, startCp, onPlay, onOpen, onToggleMute }: 
           <Crosshair size={22} /><div><strong>Контракты Фронтира</strong><span>{ready ? `${ready} наград к получению` : `${ops.claimed.length} / 3 выполнено · новые задания каждый день`}</span></div><ArrowUpRight size={18} />
         </button>
         <div className="launch-section">
+          <button type="button" onClick={() => onOpen('orbits')} className="mode-selector"><span>{world ? `${world.name} · ${world.title}` : 'Орбита 077 · Домашний сектор'}</span><ArrowUpRight size={15} /></button>
           <button type="button" onClick={() => onPlay(lastMode, startCp)} className="launch-button"><span>НАЧАТЬ ВЫЛЕТ</span><Play size={20} fill="currentColor" /></button>
           <button type="button" onClick={() => onOpen('modes')} className="mode-selector"><Layers size={15} /><span>{mode.name}{startCp > 0 && mode.allowCheckpoints ? ` · ${startCp.toLocaleString('ru-RU')}` : ''}</span><ArrowUpRight size={15} /></button>
         </div>

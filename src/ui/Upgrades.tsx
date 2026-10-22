@@ -15,7 +15,8 @@ import {
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { SaveData, TechId, UpgradeId } from '../game/types';
+import type { BaseShipId, SaveData, TechId, UpgradeId } from '../game/types';
+import { canPromote, explorationOf, hasBlueprint, MODULE_COST, parentsOf, starArtifacts, WORLDS } from '../game/exploration';
 import {
   DAMAGE,
   MAX_STAR,
@@ -201,11 +202,13 @@ export function Upgrades({
   onBack,
   onBuy,
   onStarUp,
+  onInstall,
 }: {
   save: SaveData;
   onBack: () => void;
   onBuy: (id: UpgradeId) => void;
   onStarUp: () => void;
+  onInstall: (id: BaseShipId) => void;
 }) {
   const [tab, setTab] = useState<Tab>('weapon');
   const ship = resolveShip(save, save.ship);
@@ -216,7 +219,7 @@ export function Upgrades({
   const rank = starRank(star);
   const nextRank = star < MAX_STAR ? starRank(star + 1) : null;
   const starCost = starUpCost(star);
-  const canStarUp = !!nextRank && (TEST_MODE || save.coins >= starCost) && isFullyUpgraded(save, save.ship);
+  const canStarUp = canPromote(save);
   const statMul = rank.statMul;
 
   const maxHp = Math.round(ship.mods.hp * statMul + 25 * levels.hull);
@@ -417,12 +420,13 @@ export function Upgrades({
             {nextRank
               ? canStarUp
                 ? `Повышение откроет +${nextRank.capBonus - rank.capBonus} пункт(ов) к каждой ветке прокачки`
-                : 'Прокачай «Оружие» и «Корпус» до предела — турели для ранга не нужны'
+                : !isFullyUpgraded(save, save.ship) ? 'Прокачай «Оружие» и «Корпус» до предела — турели для ранга не нужны' : save.coins < starCost ? 'Накопи монеты для следующего ранга' : 'Собери недостающие артефакты на личной орбите'
               : 'Корпус достиг максимального ранга'}
           </div>
         </div>
 
         {/* ── вкладки ── */}
+        {starArtifacts(save).length > 0 && <div className="workshop-panel mt-3"><h3 className="text-sm font-bold">Ресурсы следующего ранга</h3>{starArtifacts(save).map(r => <p className="mt-2 text-xs" key={r.id} style={{ color: r.world.color }}>{r.world.artifact}: {explorationOf(save).artifacts[r.id] ?? 0} / {r.count}</p>)}<p className="mt-2 text-xs text-slate-400">Монеты и артефакты нужны вместе. Установи личный модуль и отправляйся на его орбиту.</p></div>}
         <div className="mt-3 grid grid-cols-3 gap-1.5">
           {TABS.map((t) => (
             <button
@@ -538,6 +542,12 @@ export function Upgrades({
           })}
         </div>
 
+        <div className="mt-5 flex flex-col gap-3">{WORLDS.filter(w => parentsOf(save, save.ship).includes(w.ship)).map(w => {
+          const installed = explorationOf(save).modules.includes(w.ship);
+          const eligible = starOf(save, w.ship) >= 3;
+          return <article key={w.id} className="workshop-panel" style={{ borderColor: eligible || installed ? `${w.color}66` : undefined }}><h3 className="text-base font-bold" style={{ color: eligible || installed ? w.color : '#cbd5e1' }}>{w.module}</h3><p className="mt-2 text-sm leading-relaxed text-slate-400">{w.hint}</p>{!eligible && !installed ? <button className="workshop-secondary mt-4" disabled>Прокачайте корабль до ★★★</button> : installed ? <><p className="mt-3 text-sm text-emerald-300">Модуль установлен</p><p className="mt-1 text-sm" style={{ color: w.color }}>{w.name} · {w.title}</p><p className="mt-2 text-xs text-slate-300">{w.detail}</p></> : <><p className="mt-3 text-sm" style={{ color: w.color }}>Обнаружена {w.name.toLowerCase()} · {w.title}</p><button type="button" className="workshop-primary mt-4" disabled={save.coins < MODULE_COST} onClick={() => onInstall(w.ship)}>Установить · {MODULE_COST.toLocaleString('ru-RU')} монет</button></>}</article>;
+        })}</div>
+        <div className="workshop-panel mt-3"><h3 className="text-base font-bold">Чертёж корпуса</h3><p className="mt-2 text-sm text-slate-300">{save.ship.startsWith('fused:') ? 'Экспериментальный корпус создан по двум постоянным чертежам.' : hasBlueprint(save, save.ship as BaseShipId) ? 'Чертёж получен. Используй его в конструкторе флота.' : 'Достигни ранга «Легенда» и прокачай оружие и корпус до предела. Чертёж откроется навсегда.'}</p></div>
         <div className="mt-4 text-center text-[10px] leading-relaxed font-semibold tracking-[0.1em] text-slate-500">
           У КАЖДОГО КОРПУСА СВОЯ ПРОКАЧКА — ОНА СОХРАНЯЕТСЯ ПРИ СМЕНЕ КОРАБЛЯ
         </div>

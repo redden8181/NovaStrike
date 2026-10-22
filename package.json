@@ -1,15 +1,19 @@
 {
   "name": "react-vite-tailwind",
   "private": true,
-  "version": "3.0.0",
+  "version": "3.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "ios:sync": "npm run build && cap sync ios",
+    "ios:open": "cap open ios"
   },
   "dependencies": {
+    "@capacitor/core": "8.5.2",
+    "@capacitor/ios": "8.5.2",
     "clsx": "2.1.1",
     "lucide-react": "^1.39.0",
     "react": "19.2.6",
@@ -17,6 +21,7 @@
     "tailwind-merge": "3.4.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.5.2",
     "@tailwindcss/vite": "4.1.17",
     "@types/node": "22.19.17",
     "@types/react": "19.2.7",

@@ -1,4 +1,5 @@
 import { CombatChain, sectorAt, SECTOR_SECONDS, recordFlight } from './frontier';
+import { availableWorlds, awardArtifact, type World } from './exploration';
 import {
   ACHIEVEMENT_MAP,
   ENEMIES,
@@ -216,6 +217,8 @@ export class GameEngine {
   // ── run state ──────────────────────────────────────────────────────────────
   private score = 0;
   private runCoins = 0;
+  private world: World | undefined;
+  private runArtifacts = 0;
   private runKills = 0;
   private chain = new CombatChain();
   private sectorIndex = 0;
@@ -504,6 +507,8 @@ export class GameEngine {
     this.gameMode = config.mode;
     this.modeDef = MODE_MAP[config.mode];
     this.daily = this.modeDef.seeded ? buildDaily(todayKey()) : null;
+    this.world = this.daily ? undefined : availableWorlds(save).find(w => w.id === config.orbit);
+    this.runArtifacts = 0;
     this.rng = this.daily ? makeRng(this.daily.seed) : Math.random;
 
     // В ежедневном событии все летают на одном максимальном гибриде —
@@ -556,8 +561,12 @@ export class GameEngine {
     this.hitFx = 0;
     this.shieldDur = 7 + 1.5 * up.shield;
     this.magnetR = 62 * (1 + 0.5 * up.magnet);
+    if (this.world?.effect === 'gravity') this.magnetR *= 1.75;
     this.magnetRBig = 260 * (1 + 0.25 * up.magnet);
     this.followSpeed = 13 * mods.speed;
+    if (this.world?.effect === 'wind') this.followSpeed *= 1.2;
+    if (this.world?.effect === 'debris') this.armor = Math.min(DAMAGE.armorCap, this.armor + 10);
+    if (this.world?.effect === 'storm') this.fireRate *= 1.2;
     this.scoreMul = this.modeDef.scoreMul * (this.daily?.scoreMul ?? 1);
     this.coinMul = this.modeDef.coinMul * (this.daily?.coinMul ?? 1);
     this.coinCap = this.daily ? DAILY_COIN_CAP : 0;
@@ -805,7 +814,9 @@ export class GameEngine {
     d.interval = Math.max(0.16, 1.05 - Math.min(c, 26) * 0.034) / (this.daily?.spawnRate ?? 1);
     const sector = this.daily ? null : sectorAt(this.runTime);
     d.interval *= sector?.spawn ?? 1;
+    if (this.world?.effect === 'debris') d.interval *= .8;
     d.bullet = (1 + Math.min(1.7, c * 0.06)) * (sector?.bullet ?? 1);
+    if (this.world?.effect === 'storm' && this.runTime % 18 > 10) d.bullet *= 1.5;
     d.aggro = Math.min(2.8, 0.3 + c * 0.1);
     // ── ключевое: урон врагов растёт вместе с прочностью корабля ──
     d.dmgMul = (1 + Math.min(5.5, c * 0.075)) * (this.daily?.dmgMul ?? 1);
@@ -875,7 +886,7 @@ export class GameEngine {
     if (!this.daily && sectorIndex !== this.sectorIndex) {
       this.sectorIndex = sectorIndex;
       const sector = sectorAt(this.runTime);
-      this.pushBanner(sector.name.toUpperCase(), sector.detail.toUpperCase(), sector.color, 2.4);
+      this.pushBanner(this.world ? `${this.world.name} · ${this.world.title}` : sector.name.toUpperCase(), this.world ? this.world.detail : sector.detail.toUpperCase(), this.world?.color ?? sector.color, 2.4);
     }
     this.addScore(dt * 9);
 
@@ -1101,7 +1112,10 @@ export class GameEngine {
     this.ty = clamp(this.ty, this.h * 0.3, this.h * 0.93);
 
     this.prevPx = this.px;
-    const speed = this.followSpeed * am.speedMul;
+    const cold = this.world?.effect === 'cold' && this.runTime % 20 > 10;
+    const speed = this.followSpeed * am.speedMul * (cold ? .85 : 1);
+    if (this.world?.effect === 'wind') this.px = clamp(this.px + Math.sin(this.runTime * .4) * dt * 38 * this.u, 20 * this.u, this.w - 20 * this.u);
+    if (this.world?.effect === 'gravity') this.px = lerp(this.px, this.w / 2, dt * .3);
     const k = 1 - Math.exp(-dt * speed);
     const ky = 1 - Math.exp(-dt * speed * 0.8);
     this.px += (this.tx - this.px) * k;
@@ -2003,6 +2017,7 @@ export class GameEngine {
     this.enemies.splice(idx, 1);
     this.runKills += 1;
     this.pendKills += 1;
+    if (this.world && (e.elite || this.runKills % 20 === 0)) this.collectArtifact(e.x, e.y, 1);
     if (!this.daily) this.chain.kill();
     const killScore = e.score * (this.daily ? 1 : this.chain.multiplier * sectorAt(this.runTime).score);
     this.addScore(killScore);
@@ -2042,6 +2057,15 @@ export class GameEngine {
       }
       this.emitHud();
     }
+  }
+
+  private collectArtifact(x: number, y: number, count: number) {
+    const world = this.world;
+    if (!world || this.daily) return;
+    this.runArtifacts += count;
+    this.api.commit(s => awardArtifact(s, world.ship, count));
+    this.addFloat(x, y, `+${count} ${world.artifact}`, world.color, 15);
+    this.burst(x, y, world.color, 12, 150);
   }
 
   // ── boss lifecycle ─────────────────────────────────────────────────────────
@@ -2108,6 +2132,7 @@ export class GameEngine {
     }
     this.dropPowerup(b.x, b.y - 10);
     this.bossesDown += 1;
+    this.collectArtifact(this.w / 2, this.h * .3, 3);
     this.pendBossKills += 1;
     this.grantAchievement('boss1');
 
@@ -2537,6 +2562,8 @@ export class GameEngine {
       kills: this.runKills, time: runTime, coins: this.runCoins, combo: this.chain.best,
     }, bossesDown));
     const result: RunResult = {
+      artifacts: this.runArtifacts,
+      artifactName: this.world?.artifact,
       bestCombo: this.chain.best,
       mode,
       modeLabel: this.modeDef.name,
@@ -2584,7 +2611,7 @@ export class GameEngine {
     const b = this.boss;
     const sector = sectorAt(this.runTime);
     this.api.onHud({
-      sector: this.daily ? null : { name: sector.name, detail: sector.detail, color: sector.color, left: SECTOR_SECONDS - this.runTime % SECTOR_SECONDS },
+      sector: this.daily ? null : this.world ? { name: `${this.world.name} · ${this.world.title}`, detail: `${this.world.artifact}: ${this.runArtifacts} · ${this.world.detail}`, color: this.world.color, left: SECTOR_SECONDS - this.runTime % SECTOR_SECONDS } : { name: sector.name, detail: sector.detail, color: sector.color, left: SECTOR_SECONDS - this.runTime % SECTOR_SECONDS },
       combo: this.chain.count,
       comboMul: this.chain.multiplier,
       comboLeft: this.chain.left,
@@ -2639,8 +2666,23 @@ export class GameEngine {
     });
 
     if (live && !this.daily) {
-      ctx.fillStyle = sectorAt(this.runTime).color + '0a';
+      ctx.fillStyle = this.world ? this.world.color + '18' : sectorAt(this.runTime).color + '0a';
       ctx.fillRect(0, 0, this.w, this.h);
+      if (this.world) {
+        ctx.save();
+        ctx.strokeStyle = this.world.color + '55';
+        ctx.lineWidth = this.u;
+        if (this.world.effect === 'cold') {
+          for (let i = 0; i < 24; i++) { const x = (i * 71 + Math.sin(this.time + i) * 12) % this.w; const y = (i * 127 + this.time * 35) % this.h; ctx.beginPath(); ctx.moveTo(x - 3, y); ctx.lineTo(x + 3, y); ctx.moveTo(x, y - 3); ctx.lineTo(x, y + 3); ctx.stroke(); }
+        } else if (this.world.effect === 'gravity') {
+          for (let i = 1; i < 5; i++) { ctx.beginPath(); ctx.ellipse(this.w / 2, this.h * .3, i * 35 * this.u, i * 18 * this.u, this.time * .05, 0, TAU); ctx.stroke(); }
+        } else if (this.world.effect === 'debris') {
+          for (let i = 0; i < 16; i++) { const x = i * 79 % this.w; const y = (i * 137 + this.time * 45) % this.h; ctx.strokeRect(x, y, 8 * this.u, 11 * this.u); }
+        } else {
+          for (let i = 0; i < 8; i++) { const x = (i * 73 + this.time * 12) % this.w; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + Math.sin(this.time * .4) * 120, this.h); ctx.stroke(); }
+        }
+        ctx.restore();
+      }
     }
     ctx.save();
     if (this.shake > 0) {
