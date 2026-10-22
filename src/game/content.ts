@@ -15,7 +15,7 @@ import type {
 import { ABILITIES, fuseAbilities, type AbilityDef } from './abilities';
 
 /** Версия сборки — показывается в меню. */
-export const BUILD_VERSION = '3.0.0';
+export const BUILD_VERSION = '3.0.1';
 
 // ── Ранги наград ─────────────────────────────────────────────────────────────
 export interface RankDef {
@@ -707,6 +707,10 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.0.1', title: 'СИММЕТРИЧНЫЙ ЗАЛП',
+    items: ['При насыщении экрана основной веер и залпы турелей больше не обрезаются справа: освобождается место за счёт самых старых залпов целиком', 'Скорострельность, число стволов и лимит снарядов сохранены'],
+  },
   {
     version: '3.0.0', title: 'ФРОНТИР',
     items: [

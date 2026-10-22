@@ -4,7 +4,7 @@
    - ассеты: stale-while-revalidate
    - при изменении sw.js (смените VERSION при релизе) клиент предлагает перезагрузку в меню */
 
-const VERSION = 'nova-strike-v3.0.0';
+const VERSION = 'nova-strike-v3.0.1';
 const SHELL = [
   './',
   './index.html',
