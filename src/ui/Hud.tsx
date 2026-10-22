@@ -178,6 +178,16 @@ export function Hud({
           </div>
         </div>
 
+        <div className="mt-2 flex items-center justify-between gap-2 text-[9px] font-bold">
+          {hud.sector && <div className="min-w-0" style={{ color: hud.sector.color }}>
+            <span className="truncate">{hud.sector.name.toUpperCase()}</span>
+            <span className="num ml-2 opacity-65">{Math.ceil(hud.sector.left)}с</span>
+          </div>}
+          {hud.combo > 1 && <div className="min-w-[90px] text-right text-amber-300">
+            <span className="num">{hud.combo} СЕРИЯ · ×{hud.comboMul.toFixed(2)}</span>
+            <div className="mt-1 h-0.5 bg-white/10"><div className="h-full bg-amber-300" style={{ width: `${hud.comboLeft / 6 * 100}%` }} /></div>
+          </div>}
+        </div>
         {/* полоса прочности с числами */}
         <div className="mt-2">
           <div className="glass relative h-[18px] w-full overflow-hidden rounded-full p-[2px]">

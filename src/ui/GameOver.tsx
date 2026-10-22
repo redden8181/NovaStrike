@@ -62,7 +62,7 @@ export function GameOver({
           />
         </div>
         <div className="pop-in-1 num mt-2 text-center text-[11px] font-semibold tracking-wider text-slate-400">
-          {result.kills} УБИТО · {fmtTime(result.time)} В ВОЗДУХЕ
+          {result.kills} УБИТО · СЕРИЯ {result.bestCombo} · {fmtTime(result.time)} В ВОЗДУХЕ
           {result.bossKills > 0 && result.mode !== 'bossrush' ? ` · ${result.bossKills} БОСС` : ''}
           {result.startCheckpoint > 0 ? ` · С ТОЧКИ ${result.startCheckpoint}` : ''}
         </div>

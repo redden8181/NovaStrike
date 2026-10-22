@@ -226,3 +226,48 @@ canvas.game-canvas {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* Frontier: mission control, amber signal on graphite. */
+.command-screen { background: linear-gradient(180deg, #101927e8, #080d16f5 70%); }
+.command-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 20px; padding-top:max(16px, env(safe-area-inset-top)); }
+.command-brand { font-size:9px; font-weight:800; letter-spacing:.12em; color:#9caabc; }
+.command-brand span { color:#fb923c; }
+.icon-control { display:grid; place-items:center; width:34px; height:40px; color:#9caabc; }
+.command-main { display:flex; flex-direction:column; min-height:calc(100% - 68px); padding:26px 24px 14px; }
+.command-title > span { font-size:10px; letter-spacing:.24em; font-weight:800; color:#fdba74; }
+.command-title h1 { font-size:clamp(38px, 10vw, 60px); line-height:.96; font-weight:900; letter-spacing:-.065em; margin:12px 0; }
+.command-title h1 span { display:block; color:#91a5bb; }
+.command-title p { font-size:12px; color:#7c8da2; }
+.hangar-display { position:relative; min-height:175px; flex:1; max-height:280px; width:100%; margin:10px 0 0; overflow:hidden; background:radial-gradient(ellipse at center,#1b365266,transparent 65%); }
+.orbital-ring { position:absolute; width:210px; height:210px; border:1px solid #9caabc1f; border-radius:50%; left:50%; top:44%; transform:translate(-50%,-50%) rotateX(45deg); }
+.orbital-ring.inner { width:150px; height:150px; border-style:dashed; }
+.hangar-coordinate { position:absolute; top:25px; left:0; font-size:8px; line-height:1.8; letter-spacing:.12em; text-align:left; color:#566b82; }
+.hangar-ship { position:absolute; width:260px; height:162px; left:50%; top:42%; transform:translate(-50%,-50%); }
+.hangar-caption { position:absolute; display:flex; align-items:end; justify-content:space-between; bottom:8px; width:100%; text-align:left; }
+.hangar-caption small { display:block; font-size:8px; letter-spacing:.18em; color:#71869e; }
+.hangar-caption strong { display:block; font-size:18px; font-weight:800; margin-top:4px; }
+.hangar-caption > span { display:flex; gap:10px; align-items:center; font-size:9px; color:#91a5bb; }
+.command-stats { display:grid; grid-template-columns:1.5fr 1fr 1fr; padding:16px 0; margin-top:6px; border-top:1px solid #ffffff12; border-bottom:1px solid #ffffff12; }
+.command-stats strong { display:block; font-size:19px; font-weight:700; font-variant-numeric:tabular-nums; }
+.command-stats span { display:block; font-size:8px; letter-spacing:.1em; color:#73869d; margin-top:4px; }
+.contract-shortcut { display:flex; align-items:center; gap:12px; text-align:left; padding:16px 0; color:#fdba74; }
+.contract-shortcut div { flex:1; }
+.contract-shortcut strong { display:block; font-size:13px; color:#d5deea; font-weight:650; }
+.contract-shortcut span { display:block; font-size:10px; color:#7e90a6; margin-top:4px; }
+.launch-section { margin-top:auto; padding-top:6px; }
+.launch-button { display:flex; align-items:center; justify-content:space-between; width:100%; padding:0 20px; min-height:58px; background:#f3a55a; color:#191109; border-radius:4px; font-size:13px; font-weight:850; letter-spacing:.12em; }
+.launch-button:active { background:#fdba74; }
+.mode-selector { display:flex; align-items:center; gap:9px; width:100%; min-height:44px; color:#98aabd; font-size:10px; letter-spacing:.1em; }
+.mode-selector span { flex:1; text-align:left; }
+.command-nav { display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid #ffffff12; }
+.command-nav button { display:flex; align-items:center; justify-content:center; gap:8px; min-height:52px; color:#a8b8cb; font-size:11px; }
+.command-nav button + button { border-left:1px solid #ffffff0a; }
+.command-footer { display:flex; justify-content:space-between; gap:8px; font-size:7px; letter-spacing:.08em; color:#586b82; padding-top:6px; padding-bottom:max(6px, env(safe-area-inset-bottom)); }
+.operation-tab { padding:12px 8px; border-bottom:2px solid #ffffff15; color:#7e90a6; font-size:12px; font-weight:700; }
+.operation-tab.selected { border-color:#fb923c; color:#fdba74; }
+.operation-card { padding:18px; border:1px solid #ffffff12; border-radius:12px; background:#15203180; }
+.contract-claim { display:flex; align-items:center; justify-content:center; gap:8px; min-height:44px; width:100%; border-radius:6px; background:#f3a55a; color:#191109; font-size:12px; font-weight:750; }
+.contract-claim:disabled { background:#ffffff08; color:#8494a8; }
+button:focus-visible { outline:2px solid #fdba74; outline-offset:3px; }
+@media (max-height:740px) { .command-main { padding-top:16px; } .command-title h1 { font-size:40px; } .hangar-display { min-height:145px; } .command-stats { padding:12px 0; } .contract-shortcut { padding:12px 0; } }
+@media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }

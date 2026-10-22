@@ -57,6 +57,7 @@ export interface DailyRecord {
 }
 
 export interface SaveData {
+  operations?: import("./frontier").OperationsData;
   v: number;
   best: number;
   coins: number;
@@ -110,6 +111,10 @@ export interface BossHud {
 }
 
 export interface HudState {
+  sector: { name: string; detail: string; color: string; left: number } | null;
+  combo: number;
+  comboMul: number;
+  comboLeft: number;
   score: number;
   best: number;
   coins: number;
@@ -141,6 +146,7 @@ export interface HudState {
 }
 
 export interface RunResult {
+  bestCombo: number;
   mode: GameMode;
   modeLabel: string;
   score: number;
