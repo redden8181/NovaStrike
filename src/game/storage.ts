@@ -1,10 +1,11 @@
+import { emptyOperations } from './frontier';
 import type { GameMode, SaveData, ShipId, ShipUpgrades } from './types';
 import { todayKey } from './dailyRun';
 import { TEST_MODE, emptyUpgrades } from './content';
 
 const KEY = 'nova_strike_save_v1'; // ключ стабилен — старые сейвы продолжают грузиться
 const BACKUP_KEY = 'nova_strike_save_backup_v1';
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 
 const SHIP_IDS: ShipId[] = ['falcon', 'comet', 'titan', 'nova', 'voidx'];
 
@@ -29,6 +30,7 @@ function emptyShipUpgrades(): Record<ShipId, ShipUpgrades> {
 
 export function defaultSave(): SaveData {
   return {
+    operations: emptyOperations(),
     v: SAVE_VERSION,
     best: 0,
     coins: 0,
@@ -78,6 +80,12 @@ function migrate(raw: LegacySave): SaveData {
     ...d,
     ...raw,
     v: SAVE_VERSION,
+    operations: {
+      ...emptyOperations(), ...(raw.operations ?? {}),
+      progress: { ...emptyOperations().progress, ...(raw.operations?.progress ?? {}) },
+      claimed: Array.isArray(raw.operations?.claimed) ? raw.operations.claimed : [],
+      flights: Array.isArray(raw.operations?.flights) ? raw.operations.flights.slice(0, 12) : [],
+    },
     // Сначала сохраняем ВСЕ ключи (включая гибриды), ниже лишь дополняем базовые.
     shipUpgrades: { ...(raw.shipUpgrades ?? {}) },
     shipStars: { ...(raw.shipStars ?? {}) },
@@ -118,7 +126,7 @@ function migrate(raw: LegacySave): SaveData {
   if (save.daily.date !== today) {
     save.daily = { date: today, best: 0, runs: 0, lastScore: 0 };
   }
-  if (!save.shipsOwned.includes(save.ship)) save.ship = 'falcon';
+  if (!save.shipsOwned.includes(save.ship) && !save.fusions.some(f => f.id === save.ship)) save.ship = 'falcon';
   return save;
 }
 
@@ -130,7 +138,7 @@ export function loadSave(): SaveData {
     const sourceVersion = typeof parsed.v === 'number' ? parsed.v : 1;
     // Перед любой сменой схемы сохраняем исходный JSON как страховку.
     if (sourceVersion < SAVE_VERSION) {
-      localStorage.setItem(BACKUP_KEY, raw);
+      try { localStorage.setItem(BACKUP_KEY, raw); } catch { /* migration still works when storage is full */ }
     }
     const save = applyTestMode(migrate(parsed));
     // фиксируем новую версию, чтобы разовые миграции не повторялись

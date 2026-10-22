@@ -1,3 +1,4 @@
+import { CombatChain, sectorAt, SECTOR_SECONDS, recordFlight } from './frontier';
 import {
   ACHIEVEMENT_MAP,
   ENEMIES,
@@ -216,6 +217,8 @@ export class GameEngine {
   private score = 0;
   private runCoins = 0;
   private runKills = 0;
+  private chain = new CombatChain();
+  private sectorIndex = 0;
   private runTime = 0;
   private level = 1;
   private bossesDown = 0;
@@ -470,6 +473,11 @@ export class GameEngine {
   }
 
   private onKey = (e: KeyboardEvent) => {
+    if (e.code === 'Escape' || e.code === 'KeyP') {
+      if (!e.repeat && (this.phase === 'playing' || this.phase === 'intro')) this.setPaused(!this.paused);
+      return;
+    }
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) e.preventDefault();
     this.keys.add(e.key);
     if (e.code === 'Space' || e.key === ' ') {
       e.preventDefault();
@@ -482,6 +490,9 @@ export class GameEngine {
 
   private onVis = () => {
     if (document.hidden) {
+      this.keys.clear();
+      this.pointerActive = false;
+      this.pointerId = -1;
       if (this.phase === 'playing' || this.phase === 'intro') this.setPaused(true);
       this.flush(true);
     }
@@ -559,6 +570,8 @@ export class GameEngine {
     this.score = this.startCp;
     this.runCoins = 0;
     this.runKills = 0;
+    this.chain = new CombatChain();
+    this.sectorIndex = 0;
     this.runTime = 0;
     this.level = 1;
     this.levelBannered = 1;
@@ -790,7 +803,9 @@ export class GameEngine {
     d.speed = (1 + Math.min(2.3, c * 0.14)) * (this.daily?.enemySpeed ?? 1);
     d.hp = (1 + c * 0.38) * (this.daily?.enemyHp ?? 1);
     d.interval = Math.max(0.16, 1.05 - Math.min(c, 26) * 0.034) / (this.daily?.spawnRate ?? 1);
-    d.bullet = 1 + Math.min(1.7, c * 0.06);
+    const sector = this.daily ? null : sectorAt(this.runTime);
+    d.interval *= sector?.spawn ?? 1;
+    d.bullet = (1 + Math.min(1.7, c * 0.06)) * (sector?.bullet ?? 1);
     d.aggro = Math.min(2.8, 0.3 + c * 0.1);
     // ── ключевое: урон врагов растёт вместе с прочностью корабля ──
     d.dmgMul = (1 + Math.min(5.5, c * 0.075)) * (this.daily?.dmgMul ?? 1);
@@ -855,6 +870,13 @@ export class GameEngine {
     }
 
     this.runTime += dt;
+    this.chain.tick(dt);
+    const sectorIndex = Math.floor(this.runTime / SECTOR_SECONDS);
+    if (!this.daily && sectorIndex !== this.sectorIndex) {
+      this.sectorIndex = sectorIndex;
+      const sector = sectorAt(this.runTime);
+      this.pushBanner(sector.name.toUpperCase(), sector.detail.toUpperCase(), sector.color, 2.4);
+    }
     this.addScore(dt * 9);
 
     this.updatePlayer(dt);
@@ -1592,6 +1614,7 @@ export class GameEngine {
     let dmg = raw * this.d.dmgMul * (1 - reduction) * am.damageTakenMul;
     dmg = Math.max(1, Math.round(dmg));
     this.hp -= dmg;
+    this.chain.break();
 
     // i-frames короче при мелком уроне — иначе броня давала бы двойную выгоду
     this.invuln = raw >= DAMAGE.crash ? 0.85 : 0.5;
@@ -1980,13 +2003,15 @@ export class GameEngine {
     this.enemies.splice(idx, 1);
     this.runKills += 1;
     this.pendKills += 1;
-    this.addScore(e.score);
+    if (!this.daily) this.chain.kill();
+    const killScore = e.score * (this.daily ? 1 : this.chain.multiplier * sectorAt(this.runTime).score);
+    this.addScore(killScore);
     this.bumpVoidDrive();
     const big = e.kind === 'tank' || e.elite;
     this.explode(e.x, e.y, big ? '#fbbf24' : '#fb7185', big ? 26 : 14, big ? 1.5 : 1);
     if (!silent) sfx.play(big ? 'bigboom' : 'boom');
     if (big) this.shake = Math.min(1, this.shake + 0.3);
-    this.addFloat(e.x, e.y, `+${Math.round(e.score * this.scoreMul)}`, '#fda4af', 13);
+    this.addFloat(e.x, e.y, `+${Math.round(killScore * this.scoreMul)}`, '#fda4af', 13);
     const n = e.coinMin + Math.floor(this.rng() * (e.coinMax - e.coinMin + 1));
     for (let i = 0; i < n; i++) this.spawnCoin(e.x + (this.rng() * 16 - 8), e.y + (this.rng() * 12 - 4), 60 + this.rng() * 90);
     if (this.rng() < e.powerChance) this.dropPowerup(e.x, e.y);
@@ -2145,7 +2170,7 @@ export class GameEngine {
   private updatePickups(dt: number) {
     const syn = this.synergy.effects();
     const magnetActive = this.pw.magnet > 0;
-    const mr = (magnetActive ? this.magnetRBig : this.magnetR) * this.u * syn.magnetMul;
+    const mr = (magnetActive ? this.magnetRBig : this.magnetR) * this.u * syn.magnetMul * (this.daily ? 1 : sectorAt(this.runTime).magnet);
     const mr2 = mr * mr;
     for (let i = this.coinsArr.length - 1; i >= 0; i--) {
       const c = this.coinsArr[i];
@@ -2507,7 +2532,12 @@ export class GameEngine {
     });
 
     const after = this.api.getSave();
+    this.api.commit(s => recordFlight(s, todayKey(), {
+      date: new Date().toISOString(), mode, ship: this.shipId, score: finalScore,
+      kills: this.runKills, time: runTime, coins: this.runCoins, combo: this.chain.best,
+    }, bossesDown));
     const result: RunResult = {
+      bestCombo: this.chain.best,
       mode,
       modeLabel: this.modeDef.name,
       score: finalScore,
@@ -2552,7 +2582,12 @@ export class GameEngine {
       color: abilityDef.color,
     };
     const b = this.boss;
+    const sector = sectorAt(this.runTime);
     this.api.onHud({
+      sector: this.daily ? null : { name: sector.name, detail: sector.detail, color: sector.color, left: SECTOR_SECONDS - this.runTime % SECTOR_SECONDS },
+      combo: this.chain.count,
+      comboMul: this.chain.multiplier,
+      comboLeft: this.chain.left,
       score: Math.floor(this.score),
       best: Math.max(save.best, Math.floor(this.score)),
       coins: save.coins + this.pendCoins,
@@ -2603,6 +2638,10 @@ export class GameEngine {
       stretch,
     });
 
+    if (live && !this.daily) {
+      ctx.fillStyle = sectorAt(this.runTime).color + '0a';
+      ctx.fillRect(0, 0, this.w, this.h);
+    }
     ctx.save();
     if (this.shake > 0) {
       const s2 = this.shake * this.shake * 16 * this.u;

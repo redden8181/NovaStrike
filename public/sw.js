@@ -1,10 +1,10 @@
 /* NOVA STRIKE — service worker
-   Полный офлайн после первого визита + мгновенное автообновление:
+   Полный офлайн после первого визита + уведомление об обновлении:
    - навигация: network-first (свежая версия при появлении в сети, кэш офлайн)
    - ассеты: stale-while-revalidate
-   - при изменении sw.js (смените VERSION при релизе) все клиенты обновляются сами */
+   - при изменении sw.js (смените VERSION при релизе) клиент предлагает перезагрузку в меню */
 
-const VERSION = 'nova-strike-v2.0.1';
+const VERSION = 'nova-strike-v3.0.0';
 const SHELL = [
   './',
   './index.html',
@@ -26,7 +26,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('nova-strike-') && k !== VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });

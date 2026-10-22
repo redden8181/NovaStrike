@@ -20,12 +20,10 @@ if (import.meta.env.PROD && "serviceWorker" in navigator) {
       })
       .catch(() => {});
 
-    // new worker took control → reload once to boot the fresh build
-    let refreshing = false;
+    // Announce the update; App lets the pilot reload from the menu.
+    const wasControlled = Boolean(navigator.serviceWorker.controller);
     navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
+      if (wasControlled) window.dispatchEvent(new Event('nova-update-ready'));
     });
   });
 }

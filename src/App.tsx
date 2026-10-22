@@ -1,3 +1,5 @@
+import { Operations } from './ui/Operations';
+import { claimContract } from './game/frontier';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Home, Play, Volume2, VolumeX } from 'lucide-react';
 import type { BaseShipId, GameMode, HudState, RunResult, SaveData, ShipId, UpgradeId } from './game/types';
@@ -29,7 +31,7 @@ import { Upgrades } from './ui/Upgrades';
 import { Ships } from './ui/Ships';
 import { Achievements } from './ui/Achievements';
 
-type Screen = 'menu' | 'game' | 'gameover' | 'upgrades' | 'ships' | 'achievements' | 'modes' | 'info';
+type Screen = 'menu' | 'game' | 'gameover' | 'upgrades' | 'ships' | 'achievements' | 'modes' | 'info' | 'operations';
 
 export default function App() {
   const [save, setSave] = useState<SaveData>(loadSave);
@@ -37,11 +39,19 @@ export default function App() {
   saveRef.current = save;
 
   const commit = useCallback((fn: (s: SaveData) => SaveData) => {
-    setSave((prev) => {
-      const next = fn(prev);
-      if (next !== prev) persist(next);
-      return next;
-    });
+    const previous = saveRef.current;
+    const next = fn(previous);
+    if (next === previous) return;
+    saveRef.current = next;
+    persist(next);
+    setSave(next);
+  }, []);
+
+  const [updateReady, setUpdateReady] = useState(false);
+  useEffect(() => {
+    const ready = () => setUpdateReady(true);
+    window.addEventListener('nova-update-ready', ready);
+    return () => window.removeEventListener('nova-update-ready', ready);
   }, []);
 
   const [screen, setScreen] = useState<Screen>('menu');
@@ -137,7 +147,7 @@ export default function App() {
 
   const selectShip = useCallback(
     (id: ShipId) => {
-      if (!saveRef.current.shipsOwned.includes(id)) return;
+      if (!saveRef.current.shipsOwned.includes(id) && !saveRef.current.fusions.some(f => f.id === id)) return;
       sfx.play('ui');
       commit((s) => ({ ...s, ship: id }));
     },
@@ -244,6 +254,7 @@ export default function App() {
         />
       )}
 
+      {updateReady && screen === 'menu' && <button type="button" onClick={() => window.location.reload()} className="absolute left-4 right-4 top-16 z-40 rounded-xl border border-orange-300/40 bg-[#182536] p-3 text-xs font-bold text-orange-200">Доступно обновление · нажми, чтобы установить</button>}
       {screen === 'game' && hud && (
         <Hud
           hud={hud}
@@ -334,6 +345,7 @@ export default function App() {
         />
       )}
       {screen === 'achievements' && <Achievements save={save} onBack={() => setScreen(backTo)} />}
+      {screen === 'operations' && <Operations save={save} onBack={() => setScreen(backTo)} onClaim={id => commit(s => claimContract(s, todayKey(), id))} />}
       {screen === 'info' && <Info onBack={() => setScreen(backTo)} />}
     </div>
   );
